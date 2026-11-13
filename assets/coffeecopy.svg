@@ -1,0 +1,55 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-labelledby="title">
+  <title id="title">CoffeeCopy</title>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#4f2f1b"/>
+      <stop offset="1" stop-color="#1b100a"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.5" cy="0.35" r="0.65">
+      <stop offset="0" stop-color="#f0a247" stop-opacity="0.26"/>
+      <stop offset="1" stop-color="#f0a247" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="board" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#f8ecd8"/>
+      <stop offset="1" stop-color="#dcc19b"/>
+    </linearGradient>
+    <linearGradient id="clip" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#f7cf8e"/>
+      <stop offset="1" stop-color="#e08a2b"/>
+    </linearGradient>
+    <linearGradient id="amber" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#f7b865"/>
+      <stop offset="1" stop-color="#e5862a"/>
+    </linearGradient>
+  </defs>
+
+  <!-- fundo -->
+  <rect width="512" height="512" rx="112" fill="url(#bg)"/>
+  <rect width="512" height="512" rx="112" fill="url(#glow)"/>
+
+  <!-- prancheta: sombra, tampo e folha -->
+  <rect x="126" y="110" width="272" height="332" rx="38" fill="#120a05" opacity="0.4"/>
+  <rect x="116" y="96" width="272" height="332" rx="38" fill="url(#board)"/>
+  <rect x="142" y="148" width="220" height="262" rx="16" fill="#fffaf0"/>
+
+  <!-- linhas de texto na folha -->
+  <g fill="#8a5330" opacity="0.55">
+    <rect x="166" y="188" width="150" height="14" rx="7"/>
+    <rect x="166" y="218" width="172" height="14" rx="7"/>
+    <rect x="166" y="248" width="124" height="14" rx="7"/>
+    <rect x="166" y="278" width="96" height="14" rx="7"/>
+  </g>
+
+  <!-- presilha da prancheta -->
+  <rect x="186" y="68" width="132" height="72" rx="24" fill="url(#clip)"/>
+  <rect x="214" y="88" width="76" height="22" rx="11" fill="#4f2f1b" opacity="0.55"/>
+
+  <!-- segunda folha: o "copiar" -->
+  <rect x="284" y="300" width="132" height="156" rx="22" fill="#120a05" opacity="0.35"/>
+  <rect x="272" y="286" width="132" height="156" rx="22" fill="url(#amber)" stroke="#4f2f1b" stroke-width="10"/>
+  <g fill="#fffaf0">
+    <rect x="296" y="322" width="84" height="13" rx="6.5"/>
+    <rect x="296" y="350" width="64" height="13" rx="6.5"/>
+    <rect x="296" y="378" width="76" height="13" rx="6.5"/>
+  </g>
+</svg>
