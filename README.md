@@ -18,7 +18,7 @@ The built-in Windows clipboard history (`Win+V`) is garbage.
 
 I have to use Windows for work, and I got tired of the bullshit that is the native clipboard. Per Microsoft's own [documentation](https://support.microsoft.com/en-us/windows/apps/using-the-clipboard), it keeps only the **last 25 items**, **wipes everything on restart** (except pinned items), caps each item at **4 MB**, and handles only text, HTML and bitmaps. There is no search.
 
-So I used [Claude](https://claude.com/claude-code) to build something relatively better. That's CoffeeCopy.
+So I used Claude Sonnet 5.5 help to build something relatively better. That's CoffeeCopy.
 
 ## Screenshots
 
@@ -96,7 +96,7 @@ So I used [Claude](https://claude.com/claude-code) to build something relatively
 
 ## Install
 
-1. Download `CoffeeCopy-Setup.exe` (it is in [`dist/`](dist/)).
+1. Download `CoffeeCopy-Setup.exe`
 2. Run it. It installs for the current user in `%LOCALAPPDATA%\Programs\CoffeeCopy`. No administrator rights needed.
 3. Press `Ctrl+Shift+V`.
 
@@ -140,4 +140,4 @@ Heads up: the history is stored **unencrypted**, and a clipboard can hold passwo
 - Sounds are from [OpenGameArt](https://opengameart.org): Kenney, Brandon Morris, PWL, starninjas, Cockatrice, Little Robot, and the 8-bit and Hi-Tech packs, all CC0. The paper-crumple sound is by Nicole Marie T, [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
 - Icons are from [Font Awesome Free 7](https://fontawesome.com) (CC BY 4.0).
 - UI translations follow Microsoft's own Windows terminology (clipboard history, settings, paste, delete) in Russian, Chinese and Japanese.
-- Built with Claude.
+- Built with Claude Sonnet 5.5 help.

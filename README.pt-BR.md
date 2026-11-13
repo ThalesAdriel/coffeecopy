@@ -18,7 +18,7 @@ O histórico de área de transferência nativo do Windows (`Win+V`) é uma porca
 
 Eu preciso usar Windows no trabalho e cansei da bullshit que é a clipboard nativa. Segundo a própria [documentação da Microsoft](https://support.microsoft.com/en-us/windows/apps/using-the-clipboard), ela guarda só os **últimos 25 itens**, **apaga tudo ao reiniciar** (menos os itens fixados), limita cada item a **4 MB** e só aceita texto, HTML e imagens. E não tem busca.
 
-Então usei o [Claude](https://claude.com/claude-code) para fazer algo relativamente melhor. Esse é o CoffeeCopy.
+Então usei o Sonnet 5.5 me ajudar a fazer algo relativamente melhor. Esse é o CoffeeCopy.
 
 ## Prints
 
@@ -96,7 +96,7 @@ Então usei o [Claude](https://claude.com/claude-code) para fazer algo relativam
 
 ## Instalar
 
-1. Baixe o `CoffeeCopy-Setup.exe` (está em [`dist/`](dist/)).
+1. Baixe o `CoffeeCopy-Setup.exe`
 2. Execute. Ele instala para o usuário atual em `%LOCALAPPDATA%\Programs\CoffeeCopy`. Não precisa de administrador.
 3. Aperte `Ctrl+Shift+V`.
 
@@ -140,4 +140,4 @@ Atenção: o histórico é guardado **sem criptografia**, e uma área de transfe
 - Os sons são do [OpenGameArt](https://opengameart.org): Kenney, Brandon Morris, PWL, starninjas, Cockatrice, Little Robot e os pacotes 8-bit e Hi-Tech, todos CC0. O som de papel amassando é de Nicole Marie T, [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
 - Os ícones são do [Font Awesome Free 7](https://fontawesome.com) (CC BY 4.0).
 - As traduções da interface seguem a terminologia oficial do Windows da Microsoft (histórico da área de transferência, configurações, colar, excluir) em russo, chinês e japonês.
-- Feito com o Claude.
+- Feito com grande ajuda da Sonnet 5.5.
