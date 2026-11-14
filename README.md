@@ -20,6 +20,10 @@ I have to use Windows for work, and I got tired of the bullshit that is the nati
 
 So I used Claude Sonnet 5.5 help to build something relatively better. That's CoffeeCopy.
 
+## Why the name?
+
+Because I think it sounds cool, even though it doesn't make that much sense.
+
 ## Screenshots
 
 | History | Fuzzy search |
