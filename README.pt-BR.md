@@ -20,6 +20,10 @@ Eu preciso usar Windows no trabalho e cansei da bullshit que é a clipboard nati
 
 Então usei o Sonnet 5.5 me ajudar a fazer algo relativamente melhor. Esse é o CoffeeCopy.
 
+## Por que esse nome?
+
+Porque eu acho que o nome fica irado, mesmo que não faça tanto sentido.
+
 ## Prints
 
 | Histórico | Busca fuzzy |
