@@ -46,6 +46,10 @@ Because I think it sounds cool, even though it doesn't make that much sense.
 | --- | --- |
 | ![Crimson](docs/screenshots/history-crimson.png) | ![OLED](docs/screenshots/theme-oled.png) |
 
+| Light theme with another accent color | Settings: data (automatic cleanup) |
+| --- | --- |
+| ![Light](docs/screenshots/theme-light.png) | ![Data](docs/screenshots/settings-data.png) |
+
 | Japanese | Russian | Chinese |
 | --- | --- | --- |
 | ![Japanese](docs/screenshots/lang-ja-history.png) | ![Russian](docs/screenshots/lang-ru-history.png) | ![Chinese](docs/screenshots/lang-zh-history.png) |
@@ -55,8 +59,10 @@ Because I think it sounds cool, even though it doesn't make that much sense.
 **History and search**
 - Keeps everything you copy (text and images), with no fixed item limit (the list shows up to 5,000 results at a time), and keeps it across restarts.
 - Fuzzy search: type a few letters, or several words, and the best matches come first.
+- Search filters: text only, images only, or only what you copied today.
 - Favorites: star an item and find it in its own tab. Favorites survive "Clear history".
 - Preview panel for text and images. Delete single items or clear the whole history.
+- Optional automatic cleanup (off by default): delete items you have not used for a week, a month, three months or a year. Favorites are never deleted.
 
 **Pasting**
 - Pick an item with `Enter` or a click and it is pasted into the app you were using.
@@ -68,16 +74,17 @@ Because I think it sounds cool, even though it doesn't make that much sense.
 - Six sound packs (Camera / cards, Kenney, Paper / pages, Corporate, 8-bit / Arcade, Hi-Tech), a volume slider and a mute switch.
 
 **Look and feel**
-- Three themes (Dark, OLED black, Crimson), window transparency, a blur-behind effect and an adjustable corner radius.
+- Four themes (Dark, OLED black, Crimson, Light), an accent color of your choice, window transparency, a blur-behind effect and an adjustable corner radius.
 - Compact mode: a narrow window with just the list.
 - Out of the box the app starts with blur on, 77% transparency and square corners.
 - Smooth animations (fade or slide), crisp on high-DPI screens, with anti-aliased shapes.
 - Opens where you want: screen center, next to the cursor, top, or bottom-right corner, on the monitor you are using.
 
 **Keyboard**
-- A global shortcut to open it (default `Ctrl+Alt+H`, so `Ctrl+Shift+V` stays free for pasting without formatting).
+- A global shortcut to open it (default `Ctrl+Alt+H`).
 - Every shortcut can be remapped in Settings → Keybinds.
 - Optional: take over `Win+V` from Windows, and turn off the Windows clipboard history.
+- If another app already owns the shortcut, CoffeeCopy tells you (a tray notification and a message in Settings → Keybinds) instead of failing silently.
 
 **Windows integration**
 - Tray icon (it adapts to the light or dark taskbar), start with Windows, per-user installer with an uninstaller.

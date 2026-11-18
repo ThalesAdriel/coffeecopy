@@ -69,9 +69,17 @@ pub struct Settings {
     pub single_click: bool,
     /// Interface language: 0 English, 1 Português, 2 Русский, 3 中文, 4 日本語
     pub lang: usize,
+    /// Accent color: 0 = the theme's own, 1.. = `ACCENTS[n - 1]`
+    pub accent: usize,
+    /// Delete items not used for `cleanup_days` days (favorites are kept). Off by default.
+    pub cleanup: bool,
+    pub cleanup_days: u32,
     /// Remappable keys: [open (global), favorite, delete, next tab]
     pub keys: [Bind; 4],
 }
+
+/// Choices for the automatic cleanup, in days.
+pub const CLEAN_DAYS: [u32; 4] = [7, 30, 90, 365];
 
 impl Default for Settings {
     fn default() -> Self {
@@ -93,6 +101,9 @@ impl Default for Settings {
             compact: false,
             single_click: false,
             lang: 0,
+            accent: 0,
+            cleanup: false,
+            cleanup_days: 30,
             keys: DEFAULT_KEYS,
         }
     }
@@ -121,6 +132,12 @@ impl Settings {
                     "compact" => s.compact = v == "1",
                     "single_click" => s.single_click = v == "1",
                     "lang" => s.lang = v.parse().unwrap_or(0usize).min(4),
+                    "accent" => s.accent = v.parse().unwrap_or(0usize).min(ACCENTS.len()),
+                    "cleanup" => s.cleanup = v == "1",
+                    "cleanup_days" => {
+                        let d = v.parse().unwrap_or(30u32);
+                        s.cleanup_days = if CLEAN_DAYS.contains(&d) { d } else { 30 };
+                    }
                     "key_open" => s.keys[0] = Bind::parse(v).unwrap_or(DEFAULT_KEYS[0]),
                     "key_fav" => s.keys[1] = Bind::parse(v).unwrap_or(DEFAULT_KEYS[1]),
                     "key_del" => s.keys[2] = Bind::parse(v).unwrap_or(DEFAULT_KEYS[2]),
@@ -136,10 +153,11 @@ impl Settings {
 
     pub fn save(&self) {
         let txt = format!(
-            "theme={}\nopacity={}\npack={}\nvolume={}\nmuted={}\nblur={}\nanim={}\nanim_style={}\nanim_ms={}\nwin_v={}\npos={}\nradius={}\npaste_on_select={}\npaste_sound={}\ncompact={}\nsingle_click={}\nlang={}\nkey_open={}\nkey_fav={}\nkey_del={}\nkey_tab={}\n",
+            "theme={}\nopacity={}\npack={}\nvolume={}\nmuted={}\nblur={}\nanim={}\nanim_style={}\nanim_ms={}\nwin_v={}\npos={}\nradius={}\npaste_on_select={}\npaste_sound={}\ncompact={}\nsingle_click={}\nlang={}\naccent={}\ncleanup={}\ncleanup_days={}\nkey_open={}\nkey_fav={}\nkey_del={}\nkey_tab={}\n",
             self.theme, self.opacity, self.pack, self.volume, self.muted as u8, self.blur as u8,
             self.anim as u8, self.anim_style, self.anim_ms, self.win_v as u8, self.pos, self.radius,
             self.paste_on_select as u8, self.paste_sound as u8, self.compact as u8, self.single_click as u8, self.lang,
+            self.accent, self.cleanup as u8, self.cleanup_days,
             self.keys[0].ser(), self.keys[1].ser(), self.keys[2].ser(), self.keys[3].ser()
         );
         let _ = fs::create_dir_all(data_dir());
@@ -178,9 +196,26 @@ pub struct Theme {
     pub sel: u32,
     pub track: u32,
     pub icon_img: u32,
+    /// Slider and switch knobs
+    pub knob: u32,
+    /// Light theme (a few fixed colors, like error text, need other shades on it)
+    pub light: bool,
 }
 
-pub const THEMES: [Theme; 3] = [
+/// Accent colors to choose from (a subset of the Windows accent palette). Index 0 in the
+/// settings means "the theme's own accent"; 1.. picks one of these.
+pub const ACCENTS: [u32; 8] = [
+    rgb(88, 101, 242),
+    rgb(0, 153, 188),
+    rgb(16, 137, 62),
+    rgb(255, 185, 0),
+    rgb(247, 99, 12),
+    rgb(232, 17, 35),
+    rgb(227, 0, 140),
+    rgb(135, 100, 184),
+];
+
+pub const THEMES: [Theme; 4] = [
     Theme {
         name: "Dark",
         bg: rgb(30, 30, 30),
@@ -193,6 +228,8 @@ pub const THEMES: [Theme; 3] = [
         sel: rgb(58, 64, 82),
         track: rgb(62, 62, 68),
         icon_img: rgb(110, 175, 255),
+        knob: rgb(245, 245, 245),
+        light: false,
     },
     Theme {
         name: "OLED black",
@@ -206,6 +243,8 @@ pub const THEMES: [Theme; 3] = [
         sel: rgb(34, 36, 42),
         track: rgb(40, 40, 44),
         icon_img: rgb(110, 175, 255),
+        knob: rgb(245, 245, 245),
+        light: false,
     },
     Theme {
         name: "Crimson",
@@ -219,5 +258,22 @@ pub const THEMES: [Theme; 3] = [
         sel: rgb(94, 26, 46),
         track: rgb(76, 38, 49),
         icon_img: rgb(255, 128, 150),
+        knob: rgb(245, 245, 245),
+        light: false,
+    },
+    Theme {
+        name: "Light",
+        bg: rgb(243, 243, 245),
+        ctrl: rgb(255, 255, 255),
+        prev: rgb(250, 250, 251),
+        text: rgb(28, 28, 30),
+        dim: rgb(104, 108, 118),
+        accent: rgb(0, 103, 192),
+        on_accent: rgb(255, 255, 255),
+        sel: rgb(221, 229, 243),
+        track: rgb(190, 194, 202),
+        icon_img: rgb(0, 103, 192),
+        knob: rgb(255, 255, 255),
+        light: true,
     },
 ];

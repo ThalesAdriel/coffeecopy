@@ -69,7 +69,7 @@ pub fn image_path(hash: u64) -> PathBuf {
     data_dir().join("img").join(format!("{hash:016x}.dib"))
 }
 
-fn now() -> u64 {
+pub fn now() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
 }
 
@@ -190,6 +190,21 @@ impl History {
         before - self.entries.len()
     }
 
+    /// How many items were last used before `cutoff` (unix seconds) and are not in `keep`.
+    pub fn count_older(&self, cutoff: u64, keep: &HashSet<u64>) -> usize {
+        self.entries.iter().filter(|e| e.ts < cutoff && !keep.contains(&e.hash)).count()
+    }
+
+    /// Deletes the items last used before `cutoff` that are not in `keep`. Returns how many went.
+    pub fn remove_older(&mut self, cutoff: u64, keep: &HashSet<u64>) -> usize {
+        if self.count_older(cutoff, keep) == 0 {
+            return 0;
+        }
+        let stay: HashSet<u64> =
+            self.entries.iter().filter(|e| e.ts >= cutoff || keep.contains(&e.hash)).map(|e| e.hash).collect();
+        self.clear_except(&stay)
+    }
+
     /// Moves an existing item to the top (used on repeated copies and on paste).
     pub fn touch(&mut self, hash: u64) {
         if let Some(pos) = self.entries.iter().position(|e| e.hash == hash) {
@@ -198,5 +213,30 @@ impl History {
             self.append(&e);
             self.entries.push(e);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cleanup_removes_only_old_items_that_are_not_favorites() {
+        let dir = std::env::temp_dir().join(format!("coffeecopy-test-{}", std::process::id()));
+        std::env::set_var("COFFEECOPY_DATA", &dir);
+        let mut h = History::load();
+        for t in ["old", "old but favorite", "recent"] {
+            h.add(text_hash(t), Kind::Text, t.to_string(), None);
+        }
+        h.entries[0].ts = 100;
+        h.entries[1].ts = 100;
+        h.entries[2].ts = 5_000;
+        let keep: HashSet<u64> = [text_hash("old but favorite")].into_iter().collect();
+        assert_eq!(h.count_older(1_000, &keep), 1);
+        assert_eq!(h.remove_older(1_000, &keep), 1);
+        assert_eq!(h.entries.len(), 2);
+        assert_eq!(h.remove_older(1_000, &keep), 0); // nothing left to remove
+        assert_eq!(History::load().entries.len(), 2); // and the file was rewritten
+        let _ = fs::remove_dir_all(&dir);
     }
 }

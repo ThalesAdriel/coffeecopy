@@ -46,6 +46,10 @@ Porque eu acho que o nome fica irado, mesmo que não faça tanto sentido.
 | --- | --- |
 | ![Crimson](docs/screenshots/history-crimson.png) | ![OLED](docs/screenshots/theme-oled.png) |
 
+| Tema claro com outra cor de destaque | Configurações: dados (limpeza automática) |
+| --- | --- |
+| ![Claro](docs/screenshots/theme-light.png) | ![Dados](docs/screenshots/settings-data.png) |
+
 | Japonês | Russo | Chinês |
 | --- | --- | --- |
 | ![Japonês](docs/screenshots/lang-ja-history.png) | ![Russo](docs/screenshots/lang-ru-history.png) | ![Chinês](docs/screenshots/lang-zh-history.png) |
@@ -55,8 +59,10 @@ Porque eu acho que o nome fica irado, mesmo que não faça tanto sentido.
 **Histórico e busca**
 - Guarda tudo que você copia (texto e imagens), sem limite fixo de itens (a lista mostra até 5.000 resultados por vez), e mantém depois de reiniciar.
 - Busca fuzzy: digite algumas letras, ou várias palavras, e os melhores resultados vêm primeiro.
+- Filtros na busca: só texto, só imagens ou só o que você copiou hoje.
 - Favoritos: marque um item com a estrela e ache numa aba própria. Os favoritos sobrevivem ao "Limpar histórico".
 - Painel de prévia para texto e imagens. Apague itens um a um ou limpe o histórico todo.
+- Limpeza automática opcional (desligada por padrão): apaga itens que você não usa há uma semana, um mês, três meses ou um ano. Os favoritos nunca são apagados.
 
 **Colar**
 - Escolha um item com `Enter` ou um clique e ele é colado no app que você estava usando.
@@ -68,16 +74,17 @@ Porque eu acho que o nome fica irado, mesmo que não faça tanto sentido.
 - Seis pacotes de sons (Câmera / cartas, Kenney, Papel / páginas, Corporativo, 8-bit / Arcade, Hi-Tech), controle de volume e botão de silenciar.
 
 **Aparência**
-- Três temas (Escuro, OLED preto, Crimson), transparência da janela, efeito de desfoque (blur) e arredondamento dos cantos ajustável.
+- Quatro temas (Escuro, OLED preto, Crimson, Claro), cor de destaque à sua escolha, transparência da janela, efeito de desfoque (blur) e arredondamento dos cantos ajustável.
 - Modo compacto: uma janela estreita só com a lista.
 - Na primeira execução o app já vem com desfoque ligado, 77% de transparência e cantos retos.
 - Animações suaves (fade ou deslizar), nítido em telas de alta resolução, com formas suavizadas.
 - Abre onde você quiser: centro da tela, perto do cursor, topo ou canto inferior direito, no monitor que você está usando.
 
 **Teclado**
-- Um atalho global para abrir (padrão `Ctrl+Alt+H`, assim o `Ctrl+Shift+V` continua livre para colar sem formatação).
+- Um atalho global para abrir (padrão `Ctrl+Alt+H`).
 - Todos os atalhos podem ser remapeados em Configurações → Teclas.
 - Opcional: assumir o `Win+V` do Windows e desativar o histórico de área de transferência do Windows.
+- Se outro app já usa o atalho, o CoffeeCopy avisa (notificação na bandeja e mensagem em Configurações → Teclas) em vez de falhar em silêncio.
 
 **Integração com o Windows**
 - Ícone na bandeja (se adapta à barra de tarefas clara ou escura), iniciar com o Windows, instalador por usuário com desinstalador.

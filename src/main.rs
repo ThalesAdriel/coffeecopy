@@ -27,6 +27,7 @@ use windows_sys::Win32::Media::Audio::*;
 use windows_sys::Win32::System::DataExchange::*;
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::System::Memory::*;
+use windows_sys::Win32::System::SystemInformation::GetLocalTime;
 use windows_sys::Win32::System::Registry::*;
 use windows_sys::Win32::System::Threading::{AttachThreadInput, CreateMutexW, GetCurrentThreadId};
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::*;
@@ -34,7 +35,10 @@ use windows_sys::Win32::UI::Shell::*;
 use windows_sys::Win32::UI::WindowsAndMessaging::*;
 
 use history::{fnv, text_hash, History, Kind};
-use settings::{load_favs, save_favs, Bind, Settings, Theme, DEFAULT_KEYS, M_ALT, M_CTRL, M_SHIFT, M_WIN, THEMES};
+use settings::{
+    load_favs, save_favs, Bind, Settings, Theme, ACCENTS, CLEAN_DAYS, DEFAULT_KEYS, M_ALT, M_CTRL, M_SHIFT, M_WIN,
+    THEMES,
+};
 
 // ───────────── Sound packs (all embedded) ─────────────
 // Camera: "Camera" (CC0) + "Equipment Click" (CC0) — opengameart.org
@@ -155,6 +159,19 @@ fn snap_w_fn() -> i32 {
 fn snap_h_fn() -> i32 {
     ui_h_fn() / 6
 }
+/// The three filter buttons inside the search bar: text only, images only, today only.
+fn filters_w_fn() -> i32 {
+    if compact() { 3 * 34 + 2 * 4 } else { 3 * 132 + 2 * 6 }
+}
+fn filter_rect(i: usize) -> RECT {
+    let (w, gap) = if compact() { (34, 4) } else { (132, 6) };
+    let x1 = ui_w_fn() - 18 - (2 - i as i32) * (w + gap);
+    RECT { left: x1 - w, top: 59, right: x1, bottom: 85 }
+}
+/// Width of the search box (what is left of the search bar after the filter buttons).
+fn edit_w_fn() -> i32 {
+    ui_w_fn() - 18 - filters_w_fn() - 8 - 52
+}
 const MAX_RESULTS: usize = 5000;
 const SEARCH_CHARS: usize = 1000;
 const ID_EDIT: usize = 101;
@@ -200,6 +217,12 @@ enum Act {
     Volume,
     Duration,
     Radius,
+    /// Search filter: 0 text only, 1 images only, 2 today only
+    Filter(usize),
+    /// Accent color (0 = the theme's own)
+    Accent(usize),
+    Cleanup,
+    CleanDays(usize),
 }
 
 thread_local! {
@@ -248,6 +271,15 @@ static FRAME_PENDING: AtomicBool = AtomicBool::new(false);
 const WATCH_TIMER: usize = 78;
 static WATCH_BTN: AtomicBool = AtomicBool::new(false);
 static WATCH_TICKS: AtomicU32 = AtomicU32::new(0);
+/// Search filters (reset every time the window opens): 0 = all, 1 = text only, 2 = images only
+static FILTER_KIND: AtomicUsize = AtomicUsize::new(0);
+static FILTER_TODAY: AtomicBool = AtomicBool::new(false);
+/// false when the system refused to register the global shortcut (another app has it)
+static HOTKEY_OK: AtomicBool = AtomicBool::new(true);
+thread_local! {
+    /// When the window was last closed by a mouse press outside it (see the tray click handling)
+    static HIDE_CLICK: std::cell::Cell<Option<Instant>> = std::cell::Cell::new(None);
+}
 
 fn kick_frames() {
     ANIM_ACTIVE.store(true, Relaxed);
@@ -318,8 +350,32 @@ fn tr(key: &'static str) -> &'static str {
     i18n::tr(lang(), key)
 }
 
+/// Blend of two COLORREF colors (t = 0 gives `a`, t = 1 gives `b`).
+fn mix_color(a: u32, b: u32, t: f32) -> u32 {
+    let ch = |s: u32| {
+        let (x, y) = (((a >> s) & 0xFF) as f32, ((b >> s) & 0xFF) as f32);
+        ((x + (y - x) * t).round() as u32) << s
+    };
+    ch(0) | ch(8) | ch(16)
+}
+
+/// Perceived brightness (0..255) of a COLORREF color.
+fn brightness(c: u32) -> f32 {
+    0.299 * (c & 0xFF) as f32 + 0.587 * ((c >> 8) & 0xFF) as f32 + 0.114 * ((c >> 16) & 0xFF) as f32
+}
+
+/// The current theme, with the chosen accent color applied on top.
 fn theme() -> Theme {
-    THEMES[SET.with(|s| s.borrow().theme).min(THEMES.len() - 1)]
+    let s = settings();
+    let mut t = THEMES[s.theme.min(THEMES.len() - 1)];
+    if s.accent >= 1 && s.accent <= ACCENTS.len() {
+        let a = ACCENTS[s.accent - 1];
+        t.accent = a;
+        t.on_accent = if brightness(a) > 150.0 { rgb(24, 24, 24) } else { rgb(255, 255, 255) };
+        t.sel = mix_color(t.bg, a, if t.light { 0.16 } else { 0.30 });
+        t.icon_img = if t.light { a } else { mix_color(a, rgb(255, 255, 255), 0.35) };
+    }
+    t
 }
 fn settings() -> Settings {
     SET.with(|s| *s.borrow())
@@ -562,10 +618,40 @@ unsafe fn edit_text() -> String {
     String::from_utf16_lossy(&buf[..got.max(0) as usize])
 }
 
+/// Unix time (seconds) of the last local midnight.
+fn local_midnight() -> u64 {
+    unsafe {
+        let mut st: SYSTEMTIME = std::mem::zeroed();
+        GetLocalTime(&mut st);
+        let since = st.wHour as u64 * 3600 + st.wMinute as u64 * 60 + st.wSecond as u64;
+        history::now().saturating_sub(since)
+    }
+}
+
+/// Automatic cleanup (off by default): deletes what was not used for the chosen time. Favorites stay.
+unsafe fn run_cleanup() {
+    let s = settings();
+    if !s.cleanup {
+        return;
+    }
+    let cutoff = history::now().saturating_sub(s.cleanup_days as u64 * 86_400);
+    let keep = FAVS.with(|f| f.borrow().clone());
+    let gone = HIST.with(|hs| hs.borrow_mut().remove_older(cutoff, &keep));
+    if gone > 0 {
+        IMG_CACHE.with(|c| *c.borrow_mut() = None);
+        let ui = h(&UI);
+        if !ui.is_null() && IsWindowVisible(ui) != 0 && TAB.load(Relaxed) != 2 {
+            refilter_keep();
+        }
+    }
+}
+
 unsafe fn refilter() {
     let only_favs = TAB.load(Relaxed) == 1;
     let favs = FAVS.with(|f| f.borrow().clone());
     let terms: Vec<Vec<char>> = edit_text().split_whitespace().map(fuzzy::lower).collect();
+    let kind_filter = FILTER_KIND.load(Relaxed);
+    let since = if FILTER_TODAY.load(Relaxed) { Some(local_midnight()) } else { None };
 
     let view = HIST.with(|hs| {
         let hs = hs.borrow();
@@ -573,6 +659,12 @@ unsafe fn refilter() {
         for i in (0..hs.entries.len()).rev() {
             let e = &hs.entries[i];
             if only_favs && !favs.contains(&e.hash) {
+                continue;
+            }
+            if (kind_filter == 1 && e.kind != Kind::Text) || (kind_filter == 2 && e.kind != Kind::Image) {
+                continue;
+            }
+            if since.is_some_and(|s| e.ts < s) {
                 continue;
             }
             if terms.is_empty() {
@@ -971,7 +1063,9 @@ unsafe fn register_hotkey() -> bool {
     if b.mods & M_WIN != 0 {
         m |= MOD_WIN;
     }
-    RegisterHotKey(hwnd, 1, m, b.vk as u32) != 0
+    let ok = RegisterHotKey(hwnd, 1, m, b.vk as u32) != 0;
+    HOTKEY_OK.store(ok, Relaxed);
+    ok
 }
 
 /// A key press while recording a new binding.
@@ -1134,6 +1228,8 @@ unsafe fn show_ui_tab(tab: usize, toggle: bool) {
             capture_snapshot(); // window still hidden: captures only what is behind it
         }
         SetWindowTextW(h(&EDIT), wide("").as_ptr());
+        FILTER_KIND.store(0, Relaxed);
+        FILTER_TODAY.store(false, Relaxed);
     }
     switch_tab(tab);
     let anim = settings().anim;
@@ -1197,6 +1293,10 @@ unsafe fn show_ui() {
 unsafe fn hide_ui() {
     if IsWindowVisible(h(&UI)) == 0 || exiting() {
         return;
+    }
+    if mouse_down() {
+        // closed by a click elsewhere (maybe on the tray icon): see WM_TRAY
+        HIDE_CLICK.with(|c| c.set(Some(Instant::now())));
     }
     if settings().anim {
         start_anim(true);
@@ -1494,7 +1594,7 @@ unsafe fn apply_layout() {
     }
     compute_pos();
     SetWindowPos(ui, null_mut(), UI_X.load(Relaxed) as i32, UI_Y.load(Relaxed) as i32, pw(), ph(), SWP_NOZORDER | SWP_NOACTIVATE);
-    MoveWindow(h(&EDIT), sc(52), sc(59), sc(ui_w_fn() - 52 - 26), sc(26), 1);
+    MoveWindow(h(&EDIT), sc(52), sc(59), sc(edit_w_fn()), sc(26), 1);
     refilter();
     if settings().blur {
         recapture_backdrop();
@@ -1773,11 +1873,40 @@ unsafe fn draw_tabs(hdc: HDC, t: &Theme, hits: &mut Vec<(RECT, Act)>) {
     }
 }
 
+const IC_CALENDAR: &str = "\u{f073}";
+
+/// The filter buttons in the search bar (icons only in compact mode).
+unsafe fn draw_filters(hdc: HDC, t: &Theme) {
+    let kind = FILTER_KIND.load(Relaxed);
+    let today = FILTER_TODAY.load(Relaxed);
+    let icons = [IC_TEXT, IC_IMAGE, IC_CALENDAR];
+    let names = [tr("Text"), tr("Images"), tr("Today")];
+    for i in 0..3 {
+        let r = filter_rect(i);
+        let on = match i {
+            0 => kind == 1,
+            1 => kind == 2,
+            _ => today,
+        };
+        if on {
+            rrect(hdc, &r, 12, t.accent);
+        }
+        let col = if on { t.on_accent } else { t.dim };
+        if compact() {
+            txt(hdc, icons[i], &r, SL | DT_CENTER, &FONT_ICON, col);
+        } else {
+            txt(hdc, icons[i], &RECT { left: r.left + 10, top: r.top, right: r.left + 30, bottom: r.bottom }, SL | DT_LEFT, &FONT_ICON, col);
+            txt(hdc, names[i], &RECT { left: r.left + 32, top: r.top, right: r.right - 4, bottom: r.bottom }, SL | DT_LEFT | DT_END_ELLIPSIS, &FONT_S, col);
+        }
+    }
+}
+
 unsafe fn draw_preview(hdc: HDC, t: &Theme, bars: bool, content: bool) {
     if bars {
         // search bar
         rrect(hdc, &RECT { left: 12, top: 54, right: ui_w_fn() - 12, bottom: 90 }, 12, t.ctrl);
         txt(hdc, IC_SEARCH, &RECT { left: 26, top: 54, right: 50, bottom: 90 }, SL | DT_LEFT, &FONT_ICON, t.dim);
+        draw_filters(hdc, t);
         // hint line
         let st = settings();
         let verb = if st.paste_on_select { tr("paste") } else { tr("copy") };
@@ -1855,7 +1984,7 @@ unsafe fn slider(hdc: HDC, t: &Theme, track: &RECT, frac: f64, label: &str, hits
     rrect(hdc, &RECT { left: track.left, top: cy - 3, right: track.right, bottom: cy + 3 }, 6, t.track);
     let kx = track.left + ((track.right - track.left) as f64 * frac) as i32;
     rrect(hdc, &RECT { left: track.left, top: cy - 3, right: kx, bottom: cy + 3 }, 6, t.accent);
-    circle(hdc, kx, cy, 10, rgb(245, 245, 245));
+    circle(hdc, kx, cy, 10, t.knob);
     txt(hdc, label, &RECT { left: track.right + 16, top: track.top, right: track.right + 120, bottom: track.bottom }, SL | DT_LEFT, &FONT_B, t.text);
     hits.push((*track, act));
 }
@@ -1865,7 +1994,7 @@ unsafe fn toggle(hdc: HDC, t: &Theme, x: i32, w: i32, y: i32, label: &str, on: b
     txt(hdc, label, &RECT { left: x, top: y, right: x + w - 64, bottom: y + 30 }, SL | DT_LEFT | DT_END_ELLIPSIS, &FONT, t.text);
     let r = RECT { left: x + w - 52, top: y + 3, right: x + w, bottom: y + 27 };
     rrect(hdc, &r, 24, if on { t.accent } else { t.track });
-    circle(hdc, if on { r.right - 12 } else { r.left + 12 }, y + 15, 9, rgb(245, 245, 245));
+    circle(hdc, if on { r.right - 12 } else { r.left + 12 }, y + 15, 9, t.knob);
     hits.push((r, act));
 }
 
@@ -1922,6 +2051,21 @@ impl<'a> Cfg<'a> {
             self.hits.push((rect, mk(i)));
         }
         self.y += ((names.len() + per_row - 1) / per_row) as i32 * 44;
+    }
+    /// Row of accent color circles: the first is the theme's own accent, then the palette.
+    unsafe fn swatches(&mut self, cur: usize, theme_accent: u32) {
+        for i in 0..=ACCENTS.len() {
+            let color = if i == 0 { theme_accent } else { ACCENTS[i - 1] };
+            let (cx, cy) = (self.x0 + 16 + i as i32 * 40, self.y + 18);
+            circle(self.hdc, cx, cy, if cur == i { 15 } else { 13 }, color);
+            if cur == i {
+                // a small dot in the middle marks the chosen one
+                let dot = if brightness(color) > 150.0 { rgb(24, 24, 24) } else { rgb(255, 255, 255) };
+                circle(self.hdc, cx, cy, 4, dot);
+            }
+            self.hits.push((RECT { left: cx - 17, top: cy - 17, right: cx + 17, bottom: cy + 17 }, Act::Accent(i)));
+        }
+        self.y += 42;
     }
     /// Action buttons with a "play" icon (sound previews).
     unsafe fn play_buttons(&mut self, items: &[(&str, Act)], per_row: usize) {
@@ -1989,8 +2133,11 @@ unsafe fn draw_config(hdc: HDC, t: &Theme, hits: &mut Vec<(RECT, Act)>) {
         0 => {
             c.label(tr("Theme"));
             let names: Vec<&str> = THEMES.iter().map(|th| tr(th.name)).collect();
-            c.chips(&names, 3, Some(s.theme), false, Act::Theme);
-            c.gap(10);
+            c.chips(&names, 4, Some(s.theme), false, Act::Theme);
+            c.gap(8);
+            c.label(tr("Accent color"));
+            c.swatches(s.accent, THEMES[s.theme.min(THEMES.len() - 1)].accent);
+            c.gap(8);
             c.label(if s.blur { tr("Transparency (blends with blur)") } else { tr("Window transparency") });
             c.slider((s.opacity as f64 - 40.0) / 60.0, &format!("{}%", s.opacity), Act::Opacity);
             c.toggle(tr("Blur behind the window"), s.blur, Act::Blur);
@@ -2059,7 +2206,7 @@ unsafe fn draw_config(hdc: HDC, t: &Theme, hits: &mut Vec<(RECT, Act)>) {
             c.hits.push((rr, Act::KeysReset));
             c.gap(52);
             if let Some(m) = KEY_MSG.with(|m| m.borrow().clone()) {
-                txt(hdc, &m, &RECT { left: x0, top: c.y, right: x0 + cw, bottom: c.y + 44 }, DT_WORDBREAK | DT_NOPREFIX, &FONT_S, rgb(255, 120, 120));
+                txt(hdc, &m, &RECT { left: x0, top: c.y, right: x0 + cw, bottom: c.y + 44 }, DT_WORDBREAK | DT_NOPREFIX, &FONT_S, if t.light { rgb(196, 43, 28) } else { rgb(255, 120, 120) });
                 c.gap(48);
             }
             txt(hdc, tr("Enter, Esc, the arrow keys and Ctrl+A are fixed."), &RECT { left: x0, top: c.y, right: x0 + cw, bottom: c.y + 40 }, DT_WORDBREAK | DT_NOPREFIX, &FONT_S, t.dim);
@@ -2070,6 +2217,14 @@ unsafe fn draw_config(hdc: HDC, t: &Theme, hits: &mut Vec<(RECT, Act)>) {
             c.gap(10);
             c.label(tr("Language"));
             c.chips(&i18n::LANG_NAMES, 3, Some(s.lang), false, Act::Lang);
+            c.gap(10);
+            c.label(tr("Credits"));
+            let mut tr_rect = RECT { left: x0, top: c.y, right: x0 + cw, bottom: c.y + 150 };
+            SelectObject(hdc, h(&FONT_S) as _);
+            SetTextColor(hdc, t.dim);
+            SetBkMode(hdc, 1);
+            let credits = tr("Sounds (opengameart.org): Kenney, Brandon Morris, PWL, starninjas, Cockatrice, Little Robot / the 8-bit and Hi-Tech packs (CC0) and Nicole Marie T (CC BY 4.0).\nIcons: Font Awesome Free 7 (CC BY 4.0).");
+            DrawTextW(hdc, wide(credits).as_ptr(), -1, &mut tr_rect, DT_WORDBREAK | DT_NOPREFIX);
         }
         _ => {
             c.label(tr("History"));
@@ -2084,14 +2239,17 @@ unsafe fn draw_config(hdc: HDC, t: &Theme, hits: &mut Vec<(RECT, Act)>) {
             txt(hdc, if confirm { tr("Click again to confirm") } else { tr("Clear history (keeps favorites)") },
                 &RECT { left: r.left + 42, top: r.top, right: r.right - 8, bottom: r.bottom }, SL | DT_LEFT | DT_END_ELLIPSIS, &FONT_B, if confirm { rgb(255, 255, 255) } else { t.text });
             c.hits.push((r, Act::Clear));
-            c.gap(56);
-            c.label(tr("Credits"));
-            let mut tr_rect = RECT { left: x0, top: c.y, right: x0 + cw, bottom: c.y + 150 };
-            SelectObject(hdc, h(&FONT_S) as _);
-            SetTextColor(hdc, t.dim);
-            SetBkMode(hdc, 1);
-            let credits = tr("Sounds (opengameart.org): Kenney, Brandon Morris, PWL, starninjas, Cockatrice, Little Robot / the 8-bit and Hi-Tech packs (CC0) and Nicole Marie T (CC BY 4.0).\nIcons: Font Awesome Free 7 (CC BY 4.0).");
-            DrawTextW(hdc, wide(credits).as_ptr(), -1, &mut tr_rect, DT_WORDBREAK | DT_NOPREFIX);
+            c.gap(54);
+            c.label(tr("Automatic cleanup"));
+            c.toggle(tr("Delete old items automatically"), s.cleanup, Act::Cleanup);
+            let names = [tr("1 week"), tr("1 month"), tr("3 months"), tr("1 year")];
+            c.chips(&names, 4, CLEAN_DAYS.iter().position(|&d| d == s.cleanup_days), !s.cleanup, Act::CleanDays);
+            c.gap(2);
+            let cutoff = history::now().saturating_sub(s.cleanup_days as u64 * 86_400);
+            let favs = FAVS.with(|f| f.borrow().clone());
+            let older = HIST.with(|hs| hs.borrow().count_older(cutoff, &favs));
+            let note = tr("{n} items are older than this. Favorites are never deleted.").replace("{n}", &older.to_string());
+            txt(hdc, &note, &RECT { left: x0, top: c.y, right: x0 + cw, bottom: c.y + 44 }, DT_WORDBREAK | DT_NOPREFIX, &FONT_S, t.dim);
         }
     }
 }
@@ -2158,6 +2316,9 @@ unsafe fn paint(hwnd: HWND) {
     if TAB.load(Relaxed) == 2 {
         draw_config(mem, &t, &mut hits);
     } else {
+        for i in 0..3 {
+            hits.push((filter_rect(i), Act::Filter(i)));
+        }
         let pr = preview_rect();
         let content = hit_rect(pr.left, pr.top, pr.right, pr.bottom);
         let bars = hit_rect(0, 50, ui_w_fn(), 94) || hit_rect(0, ui_h_fn() - 44, ui_w_fn(), ui_h_fn());
@@ -2297,6 +2458,26 @@ unsafe fn do_act(act: Act, rect: RECT, x: i32) {
         Act::Pos(i) => update_settings(|s| s.pos = i),
         Act::Anim => update_settings(|s| s.anim = !s.anim),
         Act::AnimStyle(i) => update_settings(|s| s.anim_style = i),
+        Act::Filter(i) => {
+            match i {
+                0 => FILTER_KIND.store(if FILTER_KIND.load(Relaxed) == 1 { 0 } else { 1 }, Relaxed),
+                1 => FILTER_KIND.store(if FILTER_KIND.load(Relaxed) == 2 { 0 } else { 2 }, Relaxed),
+                _ => {
+                    FILTER_TODAY.fetch_xor(true, Relaxed);
+                }
+            }
+            refilter();
+            SetFocus(h(&EDIT));
+        }
+        Act::Accent(i) => update_settings(|s| s.accent = i),
+        Act::Cleanup => {
+            update_settings(|s| s.cleanup = !s.cleanup);
+            run_cleanup();
+        }
+        Act::CleanDays(i) => {
+            update_settings(|s| s.cleanup_days = CLEAN_DAYS[i]);
+            run_cleanup();
+        }
         Act::Clear => {
             if CONFIRM_CLEAR.swap(true, Relaxed) {
                 let keep = FAVS.with(|f| f.borrow().clone());
@@ -2577,7 +2758,7 @@ unsafe fn create_ui(hinst: HINSTANCE) {
 
     let edit = CreateWindowExW(
         0, wide("EDIT").as_ptr(), null(),
-        WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL as u32, sc(52), sc(59), sc(ui_w_fn() - 52 - 26), sc(26),
+        WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL as u32, sc(52), sc(59), sc(edit_w_fn()), sc(26),
         ui, ID_EDIT as HMENU, hinst, null(),
     );
     set(&EDIT, edit);
@@ -2918,7 +3099,12 @@ unsafe fn tray(hwnd: HWND, msg: u32) {
     nid.uCallbackMessage = WM_TRAY;
     // monochrome icon (clipboard) in the tray, also swapped when the Windows theme changes
     nid.hIcon = if msg == NIM_ADD || msg == NIM_MODIFY { make_tray_icon() } else { null_mut() };
-    for (i, c) in wide(&format!("CoffeeCopy - {}", tr("{k} opens the history").replace("{k}", &bind_name(settings().keys[0])))).iter().take(127).enumerate() {
+    let tip = if HOTKEY_OK.load(Relaxed) {
+        format!("CoffeeCopy - {}", tr("{k} opens the history").replace("{k}", &bind_name(settings().keys[0])))
+    } else {
+        "CoffeeCopy".to_string()
+    };
+    for (i, c) in wide(&tip).iter().take(127).enumerate() {
         nid.szTip[i] = *c;
     }
     Shell_NotifyIconW(msg, &nid);
@@ -2926,6 +3112,31 @@ unsafe fn tray(hwnd: HWND, msg: u32) {
     if !nid.hIcon.is_null() {
         DestroyIcon(nid.hIcon);
     }
+}
+
+/// A notification bubble from the tray icon.
+unsafe fn tray_balloon(hwnd: HWND, title: &str, text: &str) {
+    let mut nid: NOTIFYICONDATAW = std::mem::zeroed();
+    nid.cbSize = std::mem::size_of::<NOTIFYICONDATAW>() as u32;
+    nid.hWnd = hwnd;
+    nid.uID = 1;
+    nid.uFlags = NIF_INFO;
+    nid.dwInfoFlags = NIIF_WARNING;
+    for (i, c) in wide(title).iter().take(63).enumerate() {
+        nid.szInfoTitle[i] = *c;
+    }
+    for (i, c) in wide(text).iter().take(255).enumerate() {
+        nid.szInfo[i] = *c;
+    }
+    Shell_NotifyIconW(NIM_MODIFY, &nid);
+}
+
+/// The global shortcut could not be registered at startup: tell the user, in the tray and in Settings → Keybinds.
+unsafe fn warn_hotkey(hwnd: HWND) {
+    let msg = tr("{k} is already used by another app. Choose another shortcut in Settings → Keybinds.")
+        .replace("{k}", &bind_name(settings().keys[0]));
+    set_key_msg(Some(msg.clone()));
+    tray_balloon(hwnd, tr("Shortcut unavailable"), &msg);
 }
 
 unsafe extern "system" fn wnd_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRESULT {
@@ -2936,8 +3147,12 @@ unsafe extern "system" fn wnd_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM)
             0
         }
         WM_TIMER => {
-            KillTimer(hwnd, 1);
-            on_clipboard(hwnd);
+            if wp == 2 {
+                run_cleanup(); // hourly
+            } else {
+                KillTimer(hwnd, 1);
+                on_clipboard(hwnd);
+            }
             0
         }
         WM_SETTINGCHANGE => {
@@ -2962,7 +3177,15 @@ unsafe extern "system" fn wnd_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM)
         }
         WM_TRAY => {
             match lp as u32 {
-                WM_LBUTTONUP => show_ui(),
+                WM_LBUTTONUP => {
+                    // if this very click just closed the window (it lost focus), do not open it again
+                    let just_closed = HIDE_CLICK
+                        .with(|c| c.take())
+                        .is_some_and(|t| t.elapsed() < Duration::from_millis(1500));
+                    if !just_closed {
+                        show_ui();
+                    }
+                }
                 WM_RBUTTONUP => show_menu(hwnd),
                 _ => {}
             }
@@ -3411,12 +3634,14 @@ unsafe fn run_demo(out: &Path) {
     rec.play(180);
     rec.hold(400);
     snap("history");
-    // an image item, with its preview
-    demo_search("image");
+    // filter: images only (with the preview)
+    FILTER_KIND.store(2, Relaxed);
+    refilter();
     rec.xfade(270);
     rec.hold(1100);
     snap("image");
-    demo_search("");
+    FILTER_KIND.store(0, Relaxed);
+    refilter();
     set_sel(1);
     rec.xfade(270);
     rec.hold(300);
@@ -3456,7 +3681,19 @@ unsafe fn run_demo(out: &Path) {
     rec.xfade(390);
     rec.hold(900);
     snap("theme-oled");
-    update_settings(|s| s.theme = 0);
+    // light theme with another accent color
+    update_settings(|s| {
+        s.theme = 3;
+        s.accent = 5;
+    });
+    apply_theme();
+    rec.xfade(390);
+    rec.hold(900);
+    snap("theme-light");
+    update_settings(|s| {
+        s.theme = 0;
+        s.accent = 0;
+    });
     apply_theme();
     rec.xfade(390);
     rec.hold(500);
@@ -3593,10 +3830,15 @@ fn main() {
             return;
         }
         std::thread::spawn(frame_thread);
-        register_hotkey();
+        let hotkey_ok = register_hotkey();
         apply_winv();
         AddClipboardFormatListener(hwnd);
         tray(hwnd, NIM_ADD);
+        if !hotkey_ok {
+            warn_hotkey(hwnd);
+        }
+        run_cleanup();
+        SetTimer(hwnd, 2, 3_600_000, None);
 
         let mut msg: MSG = std::mem::zeroed();
         while GetMessageW(&mut msg, null_mut(), 0, 0) > 0 {

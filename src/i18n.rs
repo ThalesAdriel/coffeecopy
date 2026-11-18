@@ -5,6 +5,7 @@
 //!   Clipboard history  ru «Журнал буфера обмена»  zh «剪贴板历史记录»  ja «クリップボードの履歴»
 //!   Settings           ru «Параметры»             zh «设置»            ja «設定»
 //!   Paste / Delete     ru «Вставить» / «Удалить»  zh «粘贴» / «删除»    ja «貼り付け» / «削除»
+//!   Light theme / Accent color  ru «Светлая» / «Акцентный цвет»  zh «浅色» / «强调色»  ja «ライト» / «アクセント カラー»
 //! (see support.microsoft.com "Using the clipboard", ru-ru / zh-cn / ja-jp).
 
 pub const LANG_NAMES: [&str; 5] = ["English", "Português", "Русский", "中文", "日本語"];
@@ -140,6 +141,20 @@ static PT: &[(&str, &str)] = &[
     ("Use a modifier key (Ctrl, Shift, Alt or Win) with this key.", "Use uma tecla modificadora (Ctrl, Shift, Alt ou Win) com esta tecla."),
     ("Reset to defaults", "Restaurar padrões"),
     ("Enter, Esc, the arrow keys and Ctrl+A are fixed.", "Enter, Esc, as setas e Ctrl+A são fixos."),
+    ("Light", "Claro"),
+    ("Text", "Texto"),
+    ("Images", "Imagens"),
+    ("Today", "Hoje"),
+    ("Accent color", "Cor de destaque"),
+    ("Automatic cleanup", "Limpeza automática"),
+    ("Delete old items automatically", "Apagar itens antigos automaticamente"),
+    ("1 week", "1 semana"),
+    ("1 month", "1 mês"),
+    ("3 months", "3 meses"),
+    ("1 year", "1 ano"),
+    ("{n} items are older than this. Favorites are never deleted.", "{n} itens são mais antigos que isso. Os favoritos nunca são apagados."),
+    ("Shortcut unavailable", "Atalho indisponível"),
+    ("{k} is already used by another app. Choose another shortcut in Settings → Keybinds.", "{k} já é usado por outro app. Escolha outro atalho em Configurações → Teclas."),
 ];
 
 static RU: &[(&str, &str)] = &[
@@ -225,6 +240,20 @@ static RU: &[(&str, &str)] = &[
     ("Use a modifier key (Ctrl, Shift, Alt or Win) with this key.", "Для этой клавиши нужна клавиша-модификатор (Ctrl, Shift, Alt или Win)."),
     ("Reset to defaults", "Сбросить по умолчанию"),
     ("Enter, Esc, the arrow keys and Ctrl+A are fixed.", "Enter, Esc, стрелки и Ctrl+A изменить нельзя."),
+    ("Light", "Светлая"),
+    ("Text", "Текст"),
+    ("Images", "Изображения"),
+    ("Today", "Сегодня"),
+    ("Accent color", "Акцентный цвет"),
+    ("Automatic cleanup", "Автоматическая очистка"),
+    ("Delete old items automatically", "Автоматически удалять старые элементы"),
+    ("1 week", "1 неделя"),
+    ("1 month", "1 месяц"),
+    ("3 months", "3 месяца"),
+    ("1 year", "1 год"),
+    ("{n} items are older than this. Favorites are never deleted.", "Старше этого срока: {n}. Избранное никогда не удаляется."),
+    ("Shortcut unavailable", "Сочетание недоступно"),
+    ("{k} is already used by another app. Choose another shortcut in Settings → Keybinds.", "{k} уже используется другим приложением. Выберите другое сочетание в разделе «Параметры» → «Клавиши»."),
 ];
 
 static ZH: &[(&str, &str)] = &[
@@ -310,6 +339,20 @@ static ZH: &[(&str, &str)] = &[
     ("Use a modifier key (Ctrl, Shift, Alt or Win) with this key.", "此按键需要搭配修饰键（Ctrl、Shift、Alt 或 Win）。"),
     ("Reset to defaults", "恢复默认设置"),
     ("Enter, Esc, the arrow keys and Ctrl+A are fixed.", "Enter、Esc、方向键和 Ctrl+A 不可更改。"),
+    ("Light", "浅色"),
+    ("Text", "文本"),
+    ("Images", "图像"),
+    ("Today", "今天"),
+    ("Accent color", "强调色"),
+    ("Automatic cleanup", "自动清理"),
+    ("Delete old items automatically", "自动删除旧项目"),
+    ("1 week", "1 周"),
+    ("1 month", "1 个月"),
+    ("3 months", "3 个月"),
+    ("1 year", "1 年"),
+    ("{n} items are older than this. Favorites are never deleted.", "超过此期限的项目：{n} 项。收藏项永远不会被删除。"),
+    ("Shortcut unavailable", "快捷键不可用"),
+    ("{k} is already used by another app. Choose another shortcut in Settings → Keybinds.", "{k} 已被其他应用占用。请在“设置 → 快捷键”中选择其他快捷键。"),
 ];
 
 static JA: &[(&str, &str)] = &[
@@ -395,4 +438,18 @@ static JA: &[(&str, &str)] = &[
     ("Use a modifier key (Ctrl, Shift, Alt or Win) with this key.", "このキーには修飾キー（Ctrl、Shift、Alt、Win）が必要です。"),
     ("Reset to defaults", "既定値に戻す"),
     ("Enter, Esc, the arrow keys and Ctrl+A are fixed.", "Enter、Esc、方向キー、Ctrl+A は変更できません。"),
+    ("Light", "ライト"),
+    ("Text", "テキスト"),
+    ("Images", "画像"),
+    ("Today", "今日"),
+    ("Accent color", "アクセント カラー"),
+    ("Automatic cleanup", "自動クリーンアップ"),
+    ("Delete old items automatically", "古い項目を自動的に削除"),
+    ("1 week", "1 週間"),
+    ("1 month", "1 か月"),
+    ("3 months", "3 か月"),
+    ("1 year", "1 年"),
+    ("{n} items are older than this. Favorites are never deleted.", "この期間より古い項目：{n} 件。お気に入りは削除されません。"),
+    ("Shortcut unavailable", "ショートカットを使用できません"),
+    ("{k} is already used by another app. Choose another shortcut in Settings → Keybinds.", "{k} はほかのアプリで使用されています。「設定 → ショートカット」で別のショートカットを選んでください。"),
 ];
