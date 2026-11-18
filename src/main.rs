@@ -243,6 +243,12 @@ const WM_FRAME: u32 = WM_APP + 3;
 static ANIM_ACTIVE: AtomicBool = AtomicBool::new(false);
 static FRAME_PENDING: AtomicBool = AtomicBool::new(false);
 
+// ── Watcher while the window is open: closes it on a click outside, even when Windows never made
+// it the foreground window (then no WM_ACTIVATE "lost focus" ever arrives), and retries to take focus.
+const WATCH_TIMER: usize = 78;
+static WATCH_BTN: AtomicBool = AtomicBool::new(false);
+static WATCH_TICKS: AtomicU32 = AtomicU32::new(0);
+
 fn kick_frames() {
     ANIM_ACTIVE.store(true, Relaxed);
 }
@@ -1139,11 +1145,47 @@ unsafe fn show_ui_tab(tab: usize, toggle: bool) {
     }
     force_foreground(ui);
     SetFocus(if tab == 2 { ui } else { h(&EDIT) });
+    WATCH_BTN.store(mouse_down(), Relaxed);
+    WATCH_TICKS.store(0, Relaxed);
+    SetTimer(ui, WATCH_TIMER, 30, None);
     if anim {
         start_anim(false);
     } else {
         ANIM.with(|a| *a.borrow_mut() = None);
         place_window(1.0);
+    }
+}
+
+fn mouse_down() -> bool {
+    unsafe { [VK_LBUTTON, VK_RBUTTON, VK_MBUTTON].iter().any(|&b| GetAsyncKeyState(b as i32) < 0) }
+}
+
+/// Runs every 30 ms while the window is visible.
+unsafe fn watch_tick() {
+    let ui = h(&UI);
+    if IsWindowVisible(ui) == 0 {
+        KillTimer(ui, WATCH_TIMER);
+        return;
+    }
+    if exiting() {
+        return;
+    }
+    // a new mouse press outside the window closes it
+    let down = mouse_down();
+    let was = WATCH_BTN.swap(down, Relaxed);
+    if down && !was && DRAG.load(Relaxed) < 0 {
+        let mut pt = POINT { x: 0, y: 0 };
+        let mut r: RECT = std::mem::zeroed();
+        GetCursorPos(&mut pt);
+        GetWindowRect(ui, &mut r);
+        if pt.x < r.left || pt.x >= r.right || pt.y < r.top || pt.y >= r.bottom {
+            hide_ui();
+            return;
+        }
+    }
+    // Windows sometimes refuses the first focus request: keep asking for half a second
+    if WATCH_TICKS.fetch_add(1, Relaxed) < 17 && GetForegroundWindow() != ui {
+        force_foreground(ui);
     }
 }
 
@@ -1521,6 +1563,7 @@ unsafe fn start_anim(out: bool) {
 unsafe fn hide_now() {
     let ui = h(&UI);
     ANIM.with(|a| *a.borrow_mut() = None);
+    KillTimer(ui, WATCH_TIMER);
     ShowWindow(ui, SW_HIDE);
     place_window(1.0);
 }
@@ -2480,6 +2523,12 @@ unsafe extern "system" fn ui_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
                 return 0;
             }
             DefWindowProcW(hwnd, msg, wp, lp)
+        }
+        WM_TIMER => {
+            if wp == WATCH_TIMER {
+                watch_tick();
+            }
+            0
         }
         WM_ACTIVATE => {
             if (wp & 0xFFFF) == 0 {

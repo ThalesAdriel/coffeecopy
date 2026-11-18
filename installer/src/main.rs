@@ -137,7 +137,7 @@ fn install(args: &[String]) {
     if silent {
         return;
     }
-    if msgbox("CoffeeCopy installed!\n\nOpen it now? (Ctrl+Shift+V opens the history.)", MB_YESNO | MB_ICONINFORMATION) == IDYES
+    if msgbox("CoffeeCopy installed!\n\nOpen it now? (Ctrl+Alt+H opens the history.)", MB_YESNO | MB_ICONINFORMATION) == IDYES
         && !no_int
     {
         let _ = Command::new(&exe).current_dir(&dir).spawn();

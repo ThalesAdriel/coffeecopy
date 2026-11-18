@@ -28,9 +28,9 @@ impl Bind {
     }
 }
 
-/// Defaults: Ctrl+Shift+V (open), Ctrl+D (favorite), Ctrl+Delete (delete), Tab (next tab).
+/// Defaults: Ctrl+Alt+H (open; Ctrl+Shift+V stays free for "paste without formatting"), Ctrl+D (favorite), Ctrl+Delete (delete), Tab (next tab).
 pub const DEFAULT_KEYS: [Bind; 4] = [
-    Bind { mods: M_CTRL | M_SHIFT, vk: 0x56 },
+    Bind { mods: M_CTRL | M_ALT, vk: 0x48 },
     Bind { mods: M_CTRL, vk: 0x44 },
     Bind { mods: M_CTRL, vk: 0x2E },
     Bind { mods: 0, vk: 0x09 },

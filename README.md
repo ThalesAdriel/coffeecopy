@@ -18,7 +18,7 @@ The built-in Windows clipboard history (`Win+V`) is garbage.
 
 I have to use Windows for work, and I got tired of the bullshit that is the native clipboard. Per Microsoft's own [documentation](https://support.microsoft.com/en-us/windows/apps/using-the-clipboard), it keeps only the **last 25 items**, **wipes everything on restart** (except pinned items), caps each item at **4 MB**, and handles only text, HTML and bitmaps. There is no search.
 
-So I used Claude Sonnet 5.5 help to build something relatively better. That's CoffeeCopy.
+So I used Claude Sonnet 5.5's help to build something relatively better. That's CoffeeCopy.
 
 ## Why the name?
 
@@ -75,7 +75,7 @@ Because I think it sounds cool, even though it doesn't make that much sense.
 - Opens where you want: screen center, next to the cursor, top, or bottom-right corner, on the monitor you are using.
 
 **Keyboard**
-- A global shortcut to open it (default `Ctrl+Shift+V`).
+- A global shortcut to open it (default `Ctrl+Alt+H`, so `Ctrl+Shift+V` stays free for pasting without formatting).
 - Every shortcut can be remapped in Settings → Keybinds.
 - Optional: take over `Win+V` from Windows, and turn off the Windows clipboard history.
 
@@ -89,7 +89,7 @@ Because I think it sounds cool, even though it doesn't make that much sense.
 
 | Action | Default | Remappable |
 | --- | --- | --- |
-| Open / close CoffeeCopy (global) | `Ctrl+Shift+V` | yes |
+| Open / close CoffeeCopy (global) | `Ctrl+Alt+H` | yes |
 | Paste or copy the selected item | `Enter` | no |
 | Favorite the selected item | `Ctrl+D` | yes |
 | Delete the selected item | `Ctrl+Delete` | yes |
@@ -102,7 +102,7 @@ Because I think it sounds cool, even though it doesn't make that much sense.
 
 1. Download `CoffeeCopy-Setup.exe`
 2. Run it. It installs for the current user in `%LOCALAPPDATA%\Programs\CoffeeCopy`. No administrator rights needed.
-3. Press `Ctrl+Shift+V`.
+3. Press `Ctrl+Alt+H`.
 
 The installer is not code-signed, so Windows SmartScreen may warn you the first time: click **More info → Run anyway**.
 
@@ -144,4 +144,4 @@ Heads up: the history is stored **unencrypted**, and a clipboard can hold passwo
 - Sounds are from [OpenGameArt](https://opengameart.org): Kenney, Brandon Morris, PWL, starninjas, Cockatrice, Little Robot, and the 8-bit and Hi-Tech packs, all CC0. The paper-crumple sound is by Nicole Marie T, [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
 - Icons are from [Font Awesome Free 7](https://fontawesome.com) (CC BY 4.0).
 - UI translations follow Microsoft's own Windows terminology (clipboard history, settings, paste, delete) in Russian, Chinese and Japanese.
-- Built with Claude Sonnet 5.5 help.
+- Built with Claude Sonnet 5.5's help.
