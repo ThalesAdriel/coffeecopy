@@ -53,3 +53,54 @@ pub fn score(hay: &[char], needle: &[char]) -> Option<i32> {
     s -= (pos[0] as i32).min(30) / 2; // late start
     Some(s)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sc(hay: &str, needle: &str) -> Option<i32> {
+        score(&lower(hay), &lower(needle))
+    }
+
+    #[test]
+    fn empty_needle_matches_with_zero() {
+        assert_eq!(sc("anything", ""), Some(0));
+        assert_eq!(sc("", ""), Some(0));
+    }
+
+    #[test]
+    fn non_match_returns_none() {
+        assert_eq!(sc("hello world", "xyz"), None);
+        assert_eq!(sc("abc", "abcd"), None);
+        assert_eq!(sc("abc", "cba"), None);
+    }
+
+    #[test]
+    fn case_insensitive_and_unicode() {
+        assert!(sc("CoffeeCopy Clipboard", "cc").is_some());
+        assert!(sc("Água Café", "água").is_some());
+        assert_eq!(lower("ÁBC"), vec!['á', 'b', 'c']);
+    }
+
+    #[test]
+    fn consecutive_beats_scattered() {
+        let tight = sc("hello world", "world").unwrap();
+        let spread = sc("w o r l d", "world").unwrap();
+        assert!(tight > spread, "expected {tight} > {spread}");
+    }
+
+    #[test]
+    fn word_boundary_beats_mid_word() {
+        let boundary = sc("foo bar", "bar").unwrap();
+        let mid = sc("foobar", "bar").unwrap();
+        assert!(boundary > mid, "expected {boundary} > {mid}");
+    }
+
+    #[test]
+    fn backward_pass_tightens_span() {
+        // 'a' appears early and again right before "bc"; backward pass should pick the tight "abc"
+        let s = sc("a________abc", "abc").unwrap();
+        let scattered = sc("a________xbc", "abc").unwrap();
+        assert!(s > scattered, "expected {s} > {scattered}");
+    }
+}

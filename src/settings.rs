@@ -12,7 +12,7 @@ pub const M_ALT: u8 = 4;
 pub const M_WIN: u8 = 8;
 
 /// A key combination: modifier bits + virtual-key code.
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct Bind {
     pub mods: u8,
     pub vk: u16,
@@ -110,73 +110,84 @@ impl Default for Settings {
 }
 
 impl Settings {
-    pub fn load() -> Self {
+    pub fn parse(txt: &str) -> Self {
         let mut s = Settings::default();
-        if let Ok(txt) = fs::read_to_string(data_dir().join("settings.ini")) {
-            for line in txt.lines() {
-                let Some((k, v)) = line.split_once('=') else { continue };
-                let v = v.trim();
-                match k.trim() {
-                    "theme" => s.theme = v.parse().unwrap_or(0).min(THEMES.len() - 1),
-                    "opacity" => s.opacity = v.parse().unwrap_or(100u8).clamp(40, 100),
-                    "pack" => s.pack = v.parse().unwrap_or(0),
-                    "volume" => s.volume = v.parse().unwrap_or(80u8).min(100),
-                    "muted" => s.muted = v == "1",
-                    "blur" => s.blur = v == "1",
-                    "anim" => s.anim = v == "1",
-                    "win_v" => s.win_v = v == "1",
-                    "pos" => s.pos = v.parse().unwrap_or(0).min(3),
-                    "radius" => s.radius = v.parse().unwrap_or(12u32).min(24),
-                    "paste_on_select" => s.paste_on_select = v != "0",
-                    "paste_sound" => s.paste_sound = v != "0",
-                    "compact" => s.compact = v == "1",
-                    "single_click" => s.single_click = v == "1",
-                    "lang" => s.lang = v.parse().unwrap_or(0usize).min(4),
-                    "accent" => s.accent = v.parse().unwrap_or(0usize).min(ACCENTS.len()),
-                    "cleanup" => s.cleanup = v == "1",
-                    "cleanup_days" => {
-                        let d = v.parse().unwrap_or(30u32);
-                        s.cleanup_days = if CLEAN_DAYS.contains(&d) { d } else { 30 };
-                    }
-                    "key_open" => s.keys[0] = Bind::parse(v).unwrap_or(DEFAULT_KEYS[0]),
-                    "key_fav" => s.keys[1] = Bind::parse(v).unwrap_or(DEFAULT_KEYS[1]),
-                    "key_del" => s.keys[2] = Bind::parse(v).unwrap_or(DEFAULT_KEYS[2]),
-                    "key_tab" => s.keys[3] = Bind::parse(v).unwrap_or(DEFAULT_KEYS[3]),
-                    "anim_style" => s.anim_style = v.parse().unwrap_or(1).min(2),
-                    "anim_ms" => s.anim_ms = v.parse().unwrap_or(180u32).clamp(80, 500),
-                    _ => {}
+        for line in txt.lines() {
+            let Some((k, v)) = line.split_once('=') else { continue };
+            let v = v.trim();
+            match k.trim() {
+                "theme" => s.theme = v.parse().unwrap_or(s.theme).min(THEMES.len() - 1),
+                "opacity" => s.opacity = v.parse().unwrap_or(s.opacity).clamp(40, 100),
+                "pack" => s.pack = v.parse().unwrap_or(s.pack),
+                "volume" => s.volume = v.parse().unwrap_or(s.volume).min(100),
+                "muted" => s.muted = v == "1",
+                "blur" => s.blur = v == "1",
+                "anim" => s.anim = v == "1",
+                "win_v" => s.win_v = v == "1",
+                "pos" => s.pos = v.parse().unwrap_or(s.pos).min(3),
+                "radius" => s.radius = v.parse().unwrap_or(s.radius).min(24),
+                "paste_on_select" => s.paste_on_select = v != "0",
+                "paste_sound" => s.paste_sound = v != "0",
+                "compact" => s.compact = v == "1",
+                "single_click" => s.single_click = v == "1",
+                "lang" => s.lang = v.parse().unwrap_or(s.lang).min(4),
+                "accent" => s.accent = v.parse().unwrap_or(s.accent).min(ACCENTS.len()),
+                "cleanup" => s.cleanup = v == "1",
+                "cleanup_days" => {
+                    let d = v.parse().unwrap_or(s.cleanup_days);
+                    s.cleanup_days = if CLEAN_DAYS.contains(&d) { d } else { s.cleanup_days };
                 }
+                "key_open" => s.keys[0] = Bind::parse(v).unwrap_or(DEFAULT_KEYS[0]),
+                "key_fav" => s.keys[1] = Bind::parse(v).unwrap_or(DEFAULT_KEYS[1]),
+                "key_del" => s.keys[2] = Bind::parse(v).unwrap_or(DEFAULT_KEYS[2]),
+                "key_tab" => s.keys[3] = Bind::parse(v).unwrap_or(DEFAULT_KEYS[3]),
+                "anim_style" => s.anim_style = v.parse().unwrap_or(s.anim_style).min(2),
+                "anim_ms" => s.anim_ms = v.parse().unwrap_or(s.anim_ms).clamp(80, 500),
+                _ => {}
             }
         }
         s
     }
 
-    pub fn save(&self) {
-        let txt = format!(
+    pub fn format(&self) -> String {
+        format!(
             "theme={}\nopacity={}\npack={}\nvolume={}\nmuted={}\nblur={}\nanim={}\nanim_style={}\nanim_ms={}\nwin_v={}\npos={}\nradius={}\npaste_on_select={}\npaste_sound={}\ncompact={}\nsingle_click={}\nlang={}\naccent={}\ncleanup={}\ncleanup_days={}\nkey_open={}\nkey_fav={}\nkey_del={}\nkey_tab={}\n",
             self.theme, self.opacity, self.pack, self.volume, self.muted as u8, self.blur as u8,
             self.anim as u8, self.anim_style, self.anim_ms, self.win_v as u8, self.pos, self.radius,
             self.paste_on_select as u8, self.paste_sound as u8, self.compact as u8, self.single_click as u8, self.lang,
             self.accent, self.cleanup as u8, self.cleanup_days,
             self.keys[0].ser(), self.keys[1].ser(), self.keys[2].ser(), self.keys[3].ser()
-        );
+        )
+    }
+
+    pub fn load() -> Self {
+        match fs::read_to_string(data_dir().join("settings.ini")) {
+            Ok(txt) => Self::parse(&txt),
+            Err(_) => Settings::default(),
+        }
+    }
+
+    pub fn save(&self) {
         let _ = fs::create_dir_all(data_dir());
-        let _ = fs::write(data_dir().join("settings.ini"), txt);
+        let _ = fs::write(data_dir().join("settings.ini"), self.format());
     }
 }
 
+pub fn parse_favs(txt: &str) -> HashSet<u64> {
+    txt.lines().filter_map(|l| u64::from_str_radix(l.trim(), 16).ok()).collect()
+}
+
+pub fn format_favs(f: &HashSet<u64>) -> String {
+    f.iter().map(|h| format!("{h:016x}\n")).collect()
+}
+
 pub fn load_favs() -> HashSet<u64> {
-    fs::read_to_string(data_dir().join("favorites.txt"))
-        .unwrap_or_default()
-        .lines()
-        .filter_map(|l| u64::from_str_radix(l.trim(), 16).ok())
-        .collect()
+    parse_favs(&fs::read_to_string(data_dir().join("favorites.txt")).unwrap_or_default())
 }
 
 pub fn save_favs(f: &HashSet<u64>) {
-    let txt: String = f.iter().map(|h| format!("{h:016x}\n")).collect();
     let _ = fs::create_dir_all(data_dir());
-    let _ = fs::write(data_dir().join("favorites.txt"), txt);
+    let _ = fs::write(data_dir().join("favorites.txt"), format_favs(f));
 }
 
 const fn rgb(r: u32, g: u32, b: u32) -> u32 {
@@ -277,3 +288,102 @@ pub const THEMES: [Theme; 4] = [
         light: true,
     },
 ];
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn bind_roundtrip_and_invalid() {
+        let b = Bind { mods: M_CTRL | M_ALT, vk: 0x48 };
+        assert_eq!(Bind::parse(&b.ser()), Some(b));
+        assert_eq!(Bind::parse(" 5 , 72 "), Some(b));
+        assert_eq!(Bind::parse(""), None);
+        assert_eq!(Bind::parse("only_one"), None);
+        assert_eq!(Bind::parse("abc,72"), None);
+        assert_eq!(Bind::parse("1,99999"), None);
+    }
+
+    #[test]
+    fn settings_roundtrip() {
+        let orig = Settings {
+            theme: 2,
+            opacity: 65,
+            pack: 4,
+            volume: 42,
+            muted: true,
+            blur: false,
+            anim: false,
+            anim_style: 2,
+            anim_ms: 320,
+            win_v: true,
+            pos: 3,
+            radius: 14,
+            paste_on_select: false,
+            paste_sound: false,
+            compact: true,
+            single_click: true,
+            lang: 1,
+            accent: 5,
+            cleanup: true,
+            cleanup_days: 90,
+            keys: [
+                Bind { mods: M_CTRL | M_SHIFT, vk: 0x56 },
+                Bind { mods: M_ALT, vk: 0x46 },
+                Bind { mods: M_SHIFT, vk: 0x2E },
+                Bind { mods: M_CTRL, vk: 0x09 },
+            ],
+        };
+        let parsed = Settings::parse(&orig.format());
+        assert_eq!(parsed.theme, orig.theme);
+        assert_eq!(parsed.opacity, orig.opacity);
+        assert_eq!(parsed.pack, orig.pack);
+        assert_eq!(parsed.volume, orig.volume);
+        assert_eq!(parsed.muted, orig.muted);
+        assert_eq!(parsed.blur, orig.blur);
+        assert_eq!(parsed.anim, orig.anim);
+        assert_eq!(parsed.anim_style, orig.anim_style);
+        assert_eq!(parsed.anim_ms, orig.anim_ms);
+        assert_eq!(parsed.win_v, orig.win_v);
+        assert_eq!(parsed.pos, orig.pos);
+        assert_eq!(parsed.radius, orig.radius);
+        assert_eq!(parsed.paste_on_select, orig.paste_on_select);
+        assert_eq!(parsed.paste_sound, orig.paste_sound);
+        assert_eq!(parsed.compact, orig.compact);
+        assert_eq!(parsed.single_click, orig.single_click);
+        assert_eq!(parsed.lang, orig.lang);
+        assert_eq!(parsed.accent, orig.accent);
+        assert_eq!(parsed.cleanup, orig.cleanup);
+        assert_eq!(parsed.cleanup_days, orig.cleanup_days);
+        assert_eq!(parsed.keys, orig.keys);
+    }
+
+    #[test]
+    fn settings_invalid_and_out_of_range_values() {
+        let def = Settings::default();
+        let bad = "opacity=not_a_number\nradius=bad\ntheme=99\nvolume=250\nanim_ms=10\ncleanup_days=45\nkey_open=broken\n";
+        let s = Settings::parse(bad);
+        assert_eq!(s.opacity, def.opacity); // 77, not 100
+        assert_eq!(s.radius, def.radius); // 0, not 12
+        assert_eq!(s.theme, THEMES.len() - 1);
+        assert_eq!(s.volume, 100);
+        assert_eq!(s.anim_ms, 80);
+        assert_eq!(s.cleanup_days, def.cleanup_days);
+        assert_eq!(s.keys[0], DEFAULT_KEYS[0]);
+
+        let clamped = Settings::parse("opacity=5\nradius=99\nanim_ms=9999\nlang=99\naccent=99\npos=99\n");
+        assert_eq!(clamped.opacity, 40);
+        assert_eq!(clamped.radius, 24);
+        assert_eq!(clamped.anim_ms, 500);
+        assert_eq!(clamped.lang, 4);
+        assert_eq!(clamped.accent, ACCENTS.len());
+        assert_eq!(clamped.pos, 3);
+    }
+
+    #[test]
+    fn favs_roundtrip() {
+        let orig: HashSet<u64> = [0x0123_4567_89ab_cdef, 0, u64::MAX].into_iter().collect();
+        let txt = format!("{}not-hex\n\n", format_favs(&orig));
+        assert_eq!(parse_favs(&txt), orig);
+    }
+}

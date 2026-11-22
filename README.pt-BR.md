@@ -132,7 +132,7 @@ cd installer
 cargo build --release
 ```
 
-Rode os testes de tradução com `cargo test`.
+Rode os testes unitários com `cargo test`.
 
 ## Modo demonstração
 
@@ -144,7 +144,7 @@ Você também pode apontar o app para outra pasta de dados com a variável de am
 
 Tudo fica na sua máquina, em `%APPDATA%\CoffeeCopy` (histórico, favoritos, configurações, imagens). Nada é enviado para lugar nenhum.
 
-Atenção: o histórico é guardado **sem criptografia**, e uma área de transferência pode conter senhas. Limpe em Configurações → Dados sempre que precisar.
+O CoffeeCopy ignora automaticamente itens marcados como sensíveis por gerenciadores de senhas e janelas anônimas (`ExcludeClipboardContentFromMonitorProcessing`, `CanIncludeInClipboardHistory = 0` e `Clipboard Viewer Ignore`). Ainda assim, o histórico salvo fica **sem criptografia**, então limpe em Configurações → Dados sempre que precisar.
 
 ## Créditos
 

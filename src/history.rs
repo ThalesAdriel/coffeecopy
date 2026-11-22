@@ -221,22 +221,43 @@ mod tests {
     use super::*;
 
     #[test]
-    fn cleanup_removes_only_old_items_that_are_not_favorites() {
+    fn history_add_dedup_remove_and_cleanup() {
         let dir = std::env::temp_dir().join(format!("coffeecopy-test-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
         std::env::set_var("COFFEECOPY_DATA", &dir);
+
         let mut h = History::load();
-        for t in ["old", "old but favorite", "recent"] {
-            h.add(text_hash(t), Kind::Text, t.to_string(), None);
+        assert!(!h.add(text_hash("old"), Kind::Text, "old".to_string(), None));
+        assert!(!h.add(text_hash("old but favorite"), Kind::Text, "old but favorite".to_string(), None));
+        assert!(!h.add(text_hash("recent"), Kind::Text, "recent".to_string(), None));
+        // Duplicate copy returns true and moves item to the top (end of entries)
+        assert!(h.add(text_hash("old"), Kind::Text, "old".to_string(), None));
+        assert_eq!(h.entries.len(), 3);
+        assert_eq!(h.entries.last().unwrap().text, "old");
+
+        // Reload compacts duplicate records in history.bin
+        let mut h = History::load();
+        assert_eq!(h.entries.len(), 3);
+
+        // Set timestamps to test cleanup keeping favorites
+        for e in &mut h.entries {
+            e.ts = if e.text == "recent" { 5_000 } else { 100 };
         }
-        h.entries[0].ts = 100;
-        h.entries[1].ts = 100;
-        h.entries[2].ts = 5_000;
         let keep: HashSet<u64> = [text_hash("old but favorite")].into_iter().collect();
         assert_eq!(h.count_older(1_000, &keep), 1);
         assert_eq!(h.remove_older(1_000, &keep), 1);
         assert_eq!(h.entries.len(), 2);
         assert_eq!(h.remove_older(1_000, &keep), 0); // nothing left to remove
         assert_eq!(History::load().entries.len(), 2); // and the file was rewritten
+
+        // Image entry + remove cleans up the .dib file on disk
+        let img_hash = fnv(8, b"fake-dib-bytes");
+        assert!(!h.add(img_hash, Kind::Image, "[Image 2x2]".to_string(), Some(b"fake-dib-bytes")));
+        assert!(image_path(img_hash).exists());
+        h.remove(img_hash);
+        assert!(!image_path(img_hash).exists());
+        assert_eq!(h.entries.len(), 2);
+
         let _ = fs::remove_dir_all(&dir);
     }
 }

@@ -132,7 +132,7 @@ cd installer
 cargo build --release
 ```
 
-Run the translation tests with `cargo test`.
+Run the unit tests with `cargo test`.
 
 ## Demo mode
 
@@ -144,7 +144,7 @@ You can also point the app at another data folder with the `COFFEECOPY_DATA` env
 
 Everything stays on your machine, in `%APPDATA%\CoffeeCopy` (history, favorites, settings, images). Nothing is sent anywhere.
 
-Heads up: the history is stored **unencrypted**, and a clipboard can hold passwords. Clear it from Settings → Data whenever you need to.
+CoffeeCopy automatically ignores items marked as sensitive by password managers and private browser windows (`ExcludeClipboardContentFromMonitorProcessing`, `CanIncludeInClipboardHistory = 0`, and `Clipboard Viewer Ignore`). Still, the saved history is stored **unencrypted**, so clear it from Settings → Data whenever you need to.
 
 ## Credits
 

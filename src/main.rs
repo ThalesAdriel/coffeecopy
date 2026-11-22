@@ -393,30 +393,171 @@ fn is_fav(hash: u64) -> bool {
 
 // ───────────────────────── Sound ─────────────────────────
 
-/// Copies the 16-bit WAV applying the volume (quadratic curve).
-fn scaled(src: &[u8], vol: u8) -> Vec<u8> {
-    let mut b = src.to_vec();
-    if vol >= 100 {
-        return b;
+const IMA_INDEX: [i32; 16] = [-1, -1, -1, -1, 2, 4, 6, 8, -1, -1, -1, -1, 2, 4, 6, 8];
+const IMA_STEP: [i32; 89] = [
+    7, 8, 9, 10, 11, 12, 13, 14, 16, 17, 19, 21, 23, 25, 28, 31, 34, 37, 41, 45, 50, 55, 60, 66,
+    73, 80, 88, 97, 107, 118, 130, 143, 157, 173, 190, 209, 230, 253, 279, 307, 337, 371, 408,
+    449, 494, 544, 598, 658, 724, 796, 876, 963, 1060, 1166, 1282, 1411, 1552, 1707, 1878, 2066,
+    2272, 2499, 2749, 3024, 3327, 3660, 4026, 4428, 4871, 5358, 5894, 6484, 7132, 7845, 8630,
+    9493, 10442, 11487, 12635, 13899, 15289, 16818, 18500, 20350, 22385, 24623, 27086, 29794,
+    32767,
+];
+
+fn ima_nibble(n: u8, pred: &mut i32, idx: &mut i32) -> i16 {
+    let step = IMA_STEP[*idx as usize];
+    let mut diff = step >> 3;
+    if n & 1 != 0 {
+        diff += step >> 2;
     }
-    let g = (vol as f32 / 100.0).powi(2);
-    let mut p = 12;
-    while p + 8 <= b.len() {
-        let id = [b[p], b[p + 1], b[p + 2], b[p + 3]];
-        let sz = u32::from_le_bytes([b[p + 4], b[p + 5], b[p + 6], b[p + 7]]) as usize;
-        if &id == b"data" {
-            let end = (p + 8 + sz).min(b.len());
-            let mut i = p + 8;
+    if n & 2 != 0 {
+        diff += step >> 1;
+    }
+    if n & 4 != 0 {
+        diff += step;
+    }
+    if n & 8 != 0 {
+        *pred -= diff;
+    } else {
+        *pred += diff;
+    }
+    *pred = (*pred).clamp(-32768, 32767);
+    *idx = (*idx + IMA_INDEX[(n & 15) as usize]).clamp(0, 88);
+    *pred as i16
+}
+
+/// Decodes a WAV file (16-bit PCM or 4-bit IMA ADPCM, mono/stereo) into a 16-bit PCM WAV
+/// with volume applied (quadratic curve).
+fn scaled(src: &[u8], vol: u8) -> Vec<u8> {
+    if src.len() < 44 || &src[0..4] != b"RIFF" || &src[8..12] != b"WAVE" {
+        return src.to_vec();
+    }
+    let mut fmt_tag = 0u16;
+    let mut channels = 0u16;
+    let mut sample_rate = 0u32;
+    let mut block_align = 0u16;
+    let mut fact_frames: Option<usize> = None;
+    let mut data_range: Option<(usize, usize)> = None;
+
+    let mut p = 12usize;
+    while p + 8 <= src.len() {
+        let id = &src[p..p + 4];
+        let sz = u32::from_le_bytes([src[p + 4], src[p + 5], src[p + 6], src[p + 7]]) as usize;
+        let start = p + 8;
+        let end = start.saturating_add(sz).min(src.len());
+        match id {
+            b"fmt " if end >= start + 16 => {
+                fmt_tag = u16::from_le_bytes([src[start], src[start + 1]]);
+                channels = u16::from_le_bytes([src[start + 2], src[start + 3]]);
+                sample_rate = u32::from_le_bytes([src[start + 4], src[start + 5], src[start + 6], src[start + 7]]);
+                block_align = u16::from_le_bytes([src[start + 12], src[start + 13]]);
+            }
+            b"fact" if end >= start + 4 => {
+                fact_frames = Some(u32::from_le_bytes([src[start], src[start + 1], src[start + 2], src[start + 3]]) as usize);
+            }
+            b"data" => {
+                data_range = Some((start, end));
+            }
+            _ => {}
+        }
+        p = start.saturating_add(sz).saturating_add(sz & 1);
+    }
+
+    let g = (vol.min(100) as f32 / 100.0).powi(2);
+
+    // 16-bit PCM WAV: fast path
+    if fmt_tag == 1 {
+        let mut b = src.to_vec();
+        if vol >= 100 {
+            return b;
+        }
+        if let Some((start, end)) = data_range {
+            let mut i = start;
             while i + 1 < end {
                 let v = (i16::from_le_bytes([b[i], b[i + 1]]) as f32 * g) as i16;
                 b[i..i + 2].copy_from_slice(&v.to_le_bytes());
                 i += 2;
             }
-            break;
         }
-        p += 8 + sz + (sz & 1);
+        return b;
     }
-    b
+
+    // 4-bit Microsoft IMA ADPCM WAV (format tag 0x0011): decode to 16-bit PCM WAV
+    if fmt_tag != 0x0011 || !matches!(channels, 1 | 2) || block_align < channels * 4 {
+        return src.to_vec();
+    }
+    let Some((d_start, d_end)) = data_range else { return src.to_vec() };
+    let data = &src[d_start..d_end];
+    let ch = channels as usize;
+    let blk = block_align as usize;
+    let mut samples: Vec<i16> = Vec::with_capacity(data.len() * 2 + 64);
+
+    let mut off = 0usize;
+    while off + ch * 4 <= data.len() {
+        let block = &data[off..(off + blk).min(data.len())];
+        off += blk;
+        let mut pred = [0i32; 2];
+        let mut idx = [0i32; 2];
+        for c in 0..ch {
+            let h = c * 4;
+            pred[c] = i16::from_le_bytes([block[h], block[h + 1]]) as i32;
+            idx[c] = (block[h + 2] as i32).clamp(0, 88);
+            samples.push(pred[c] as i16);
+        }
+        let body = &block[ch * 4..];
+        if ch == 1 {
+            for &byte in body {
+                samples.push(ima_nibble(byte & 0x0F, &mut pred[0], &mut idx[0]));
+                samples.push(ima_nibble(byte >> 4, &mut pred[0], &mut idx[0]));
+            }
+        } else {
+            for chunk in body.chunks_exact(8) {
+                let mut l = [0i16; 8];
+                let mut r = [0i16; 8];
+                for j in 0..4 {
+                    l[j * 2] = ima_nibble(chunk[j] & 0x0F, &mut pred[0], &mut idx[0]);
+                    l[j * 2 + 1] = ima_nibble(chunk[j] >> 4, &mut pred[0], &mut idx[0]);
+                    r[j * 2] = ima_nibble(chunk[4 + j] & 0x0F, &mut pred[1], &mut idx[1]);
+                    r[j * 2 + 1] = ima_nibble(chunk[4 + j] >> 4, &mut pred[1], &mut idx[1]);
+                }
+                for j in 0..8 {
+                    samples.push(l[j]);
+                    samples.push(r[j]);
+                }
+            }
+        }
+    }
+    if let Some(frames) = fact_frames {
+        samples.truncate(frames.saturating_mul(ch));
+    }
+
+    let data_bytes = (samples.len() * 2) as u32;
+    let byte_rate = sample_rate.saturating_mul(channels as u32 * 2);
+    let pcm_align = channels * 2;
+    let mut out = Vec::with_capacity(44 + data_bytes as usize);
+    out.extend_from_slice(b"RIFF");
+    out.extend_from_slice(&(36 + data_bytes).to_le_bytes());
+    out.extend_from_slice(b"WAVE");
+    out.extend_from_slice(b"fmt ");
+    out.extend_from_slice(&16u32.to_le_bytes());
+    out.extend_from_slice(&1u16.to_le_bytes());
+    out.extend_from_slice(&channels.to_le_bytes());
+    out.extend_from_slice(&sample_rate.to_le_bytes());
+    out.extend_from_slice(&byte_rate.to_le_bytes());
+    out.extend_from_slice(&pcm_align.to_le_bytes());
+    out.extend_from_slice(&16u16.to_le_bytes());
+    out.extend_from_slice(b"data");
+    out.extend_from_slice(&data_bytes.to_le_bytes());
+    if vol < 100 {
+        for s in samples {
+            let v = (s as f32 * g) as i16;
+            out.extend_from_slice(&v.to_le_bytes());
+        }
+    } else {
+        for s in samples {
+            out.extend_from_slice(&s.to_le_bytes());
+        }
+    }
+    out
 }
 
 fn play_sound(kind: Snd) {
@@ -462,6 +603,35 @@ unsafe fn grab(fmt: u32) -> Option<Vec<u8>> {
     Some(v)
 }
 
+/// Respects privacy formats set by password managers and private browser windows:
+/// - `ExcludeClipboardContentFromMonitorProcessing` (present)
+/// - `Clipboard Viewer Ignore` (present, used by KeePass and legacy tools)
+/// - `CanIncludeInClipboardHistory` (present with DWORD == 0)
+unsafe fn clipboard_is_excluded() -> bool {
+    static FMTS: std::sync::OnceLock<[u32; 3]> = std::sync::OnceLock::new();
+    let [cf_exclude, cf_ignore, cf_can_hist] = *FMTS.get_or_init(|| {
+        [
+            RegisterClipboardFormatW(wide("ExcludeClipboardContentFromMonitorProcessing").as_ptr()),
+            RegisterClipboardFormatW(wide("Clipboard Viewer Ignore").as_ptr()),
+            RegisterClipboardFormatW(wide("CanIncludeInClipboardHistory").as_ptr()),
+        ]
+    });
+    if cf_exclude != 0 && IsClipboardFormatAvailable(cf_exclude) != 0 {
+        return true;
+    }
+    if cf_ignore != 0 && IsClipboardFormatAvailable(cf_ignore) != 0 {
+        return true;
+    }
+    if cf_can_hist != 0 && IsClipboardFormatAvailable(cf_can_hist) != 0 {
+        if let Some(b) = grab(cf_can_hist) {
+            if b.len() >= 4 && u32::from_le_bytes([b[0], b[1], b[2], b[3]]) == 0 {
+                return true;
+            }
+        }
+    }
+    false
+}
+
 unsafe fn read_clipboard(hwnd: HWND) -> Option<Clip> {
     let mut opened = false;
     for _ in 0..10 {
@@ -472,6 +642,10 @@ unsafe fn read_clipboard(hwnd: HWND) -> Option<Clip> {
         std::thread::sleep(Duration::from_millis(10));
     }
     if !opened {
+        return None;
+    }
+    if clipboard_is_excluded() {
+        CloseClipboard();
         return None;
     }
     let mut out = None;
@@ -1240,6 +1414,11 @@ unsafe fn show_ui_tab(tab: usize, toggle: bool) {
         ShowWindow(ui, SW_SHOW);
     }
     force_foreground(ui);
+    // If Win+V opened us from an elevated window (UIPI), the hook's dummy key may have been
+    // dropped. Now that CoffeeCopy itself is foreground, send it once more if Win is still held.
+    if WINV_USED.swap(false, Relaxed) && (LWIN_DOWN.load(Relaxed) || RWIN_DOWN.load(Relaxed)) {
+        send_dummy_key();
+    }
     SetFocus(if tab == 2 { ui } else { h(&EDIT) });
     WATCH_BTN.store(mouse_down(), Relaxed);
     WATCH_TICKS.store(0, Relaxed);
@@ -1309,7 +1488,13 @@ unsafe fn send_ctrl_v() {
     let key = |vk: u16, flags: u32| INPUT {
         r#type: INPUT_KEYBOARD,
         Anonymous: INPUT_0 {
-            ki: KEYBDINPUT { wVk: vk, wScan: 0, dwFlags: flags, time: 0, dwExtraInfo: 0 },
+            ki: KEYBDINPUT {
+                wVk: vk,
+                wScan: MapVirtualKeyW(vk as u32, MAPVK_VK_TO_VSC) as u16,
+                dwFlags: flags,
+                time: 0,
+                dwExtraInfo: 0,
+            },
         },
     };
     let inputs = [
@@ -1319,6 +1504,20 @@ unsafe fn send_ctrl_v() {
         key(VK_CONTROL, KEYEVENTF_KEYUP),
     ];
     SendInput(4, inputs.as_ptr(), std::mem::size_of::<INPUT>() as i32);
+}
+
+/// If Windows still thinks a Win key is held even though our hook saw it physically released,
+/// inject a key-up with its real hardware scan code so Ctrl+V never turns into Win+Ctrl+V.
+unsafe fn release_stuck_win() {
+    if HOOK.load(Relaxed) == 0 {
+        return;
+    }
+    if !LWIN_DOWN.load(Relaxed) && win_is_down(VK_LWIN) {
+        send_win_up(VK_LWIN);
+    }
+    if !RWIN_DOWN.load(Relaxed) && win_is_down(VK_RWIN) {
+        send_win_up(VK_RWIN);
+    }
 }
 
 /// Enter: puts the item on the clipboard, closes the window and pastes into the previous app.
@@ -1346,6 +1545,7 @@ unsafe fn choose() {
         a.last = Some((e.hash, Instant::now())); // this is now the current clipboard item
     });
     HIST.with(|hs| hs.borrow_mut().touch(e.hash));
+    release_stuck_win();
     hide_now(); // no animation: focus must go back to the previous app right away
     let s = settings();
     if s.paste_sound && !s.muted {
@@ -1357,6 +1557,27 @@ unsafe fn choose() {
     }
     if s.paste_on_select {
         std::thread::sleep(Duration::from_millis(120));
+        for _ in 0..80 {
+            release_stuck_win();
+            if !win_is_down(VK_LWIN) && !win_is_down(VK_RWIN) {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        // Final safety guard: never fire Ctrl+V while Windows still considers Win held
+        // (Win+Ctrl+V opens the Windows 11 Sound output flyout).
+        let mut forced = false;
+        if win_is_down(VK_LWIN) {
+            send_win_up(VK_LWIN);
+            forced = true;
+        }
+        if win_is_down(VK_RWIN) {
+            send_win_up(VK_RWIN);
+            forced = true;
+        }
+        if forced {
+            std::thread::sleep(Duration::from_millis(20));
+        }
         send_ctrl_v();
     }
     // with "paste on select" off, the item only goes to the clipboard (you paste with Ctrl+V)
@@ -2791,18 +3012,50 @@ unsafe fn send_dummy_key() {
 
 /// Win+V was triggered during the current press of the Windows key.
 static WINV_USED: AtomicBool = AtomicBool::new(false);
-static WIN_DOWN: AtomicBool = AtomicBool::new(false);
+static LWIN_DOWN: AtomicBool = AtomicBool::new(false);
+static RWIN_DOWN: AtomicBool = AtomicBool::new(false);
 static HOOK_TID: AtomicU32 = AtomicU32::new(0);
 
-/// Injects, in order: an empty key (down/up) and the Windows key "release".
-/// That way Windows always sees another key before the release and does not open the Start menu.
-unsafe fn send_win_release(win_vk: u16) {
-    let key = |vk: u16, flags: u32| INPUT {
+/// Releases a Windows key in the system key state (an "up" event with its real hardware scan code).
+unsafe fn send_win_up(win_vk: u16) {
+    let input = INPUT {
         r#type: INPUT_KEYBOARD,
-        Anonymous: INPUT_0 { ki: KEYBDINPUT { wVk: vk, wScan: 0, dwFlags: flags, time: 0, dwExtraInfo: 0 } },
+        Anonymous: INPUT_0 {
+            ki: KEYBDINPUT {
+                wVk: win_vk,
+                wScan: MapVirtualKeyW(win_vk as u32, MAPVK_VK_TO_VSC) as u16,
+                dwFlags: KEYEVENTF_KEYUP | KEYEVENTF_EXTENDEDKEY,
+                time: 0,
+                dwExtraInfo: 0,
+            },
+        },
     };
-    let inputs = [key(0xE8, 0), key(0xE8, KEYEVENTF_KEYUP), key(win_vk, KEYEVENTF_KEYUP)];
-    SendInput(3, inputs.as_ptr(), std::mem::size_of::<INPUT>() as i32);
+    SendInput(1, &input, std::mem::size_of::<INPUT>() as i32);
+}
+
+fn win_is_down(vk: u16) -> bool {
+    unsafe { GetAsyncKeyState(vk as i32) < 0 }
+}
+
+/// Safety net, every 250 ms on the hook thread: a Windows key that the system thinks is held while
+/// no physical press is in progress is stuck; release it.
+static STUCK_TICKS: AtomicU32 = AtomicU32::new(0);
+unsafe fn win_watchdog() {
+    let l_stuck = win_is_down(VK_LWIN) && !LWIN_DOWN.load(Relaxed);
+    let r_stuck = win_is_down(VK_RWIN) && !RWIN_DOWN.load(Relaxed);
+    if l_stuck || r_stuck {
+        if STUCK_TICKS.fetch_add(1, Relaxed) >= 1 {
+            STUCK_TICKS.store(0, Relaxed);
+            if l_stuck {
+                send_win_up(VK_LWIN);
+            }
+            if r_stuck {
+                send_win_up(VK_RWIN);
+            }
+        }
+    } else {
+        STUCK_TICKS.store(0, Relaxed);
+    }
 }
 
 unsafe extern "system" fn ll_proc(code: i32, wp: WPARAM, lp: LPARAM) -> LRESULT {
@@ -2811,26 +3064,24 @@ unsafe extern "system" fn ll_proc(code: i32, wp: WPARAM, lp: LPARAM) -> LRESULT 
         let m = wp as u32;
         let is_down = m == WM_KEYDOWN || m == WM_SYSKEYDOWN;
         let is_up = m == WM_KEYUP || m == WM_SYSKEYUP;
-        // tracks the Windows key through the hook's own events (more reliable than GetAsyncKeyState)
-        if k.vkCode == VK_LWIN as u32 || k.vkCode == VK_RWIN as u32 {
-            let injected = k.flags & LLKHF_INJECTED != 0;
+        let injected = k.flags & LLKHF_INJECTED != 0;
+        // Track physical Left/Right Windows keys without EVER swallowing their release:
+        // letting the real hardware key-up reach Windows guarantees the Win key never gets stuck
+        // (even across elevated/UIPI windows), preventing subsequent Ctrl+V from turning into
+        // Win+Ctrl+V (the Windows 11 Sound output menu).
+        if !injected && (k.vkCode == VK_LWIN as u32 || k.vkCode == VK_RWIN as u32) {
+            let slot = if k.vkCode == VK_LWIN as u32 { &LWIN_DOWN } else { &RWIN_DOWN };
             if is_down {
-                WIN_DOWN.store(true, Relaxed);
+                slot.store(true, Relaxed);
             } else if is_up {
-                WIN_DOWN.store(false, Relaxed);
-                // If Win+V was used during this press, Windows would open the Start menu on release of the
-                // Windows key (it only does not if it sees another key in between). To be deterministic:
-                // swallow this "release" and re-inject [empty key, Windows release] in the right order.
-                if !injected && WINV_USED.swap(false, Relaxed) {
-                    send_win_release(k.vkCode as u16);
-                    return 1;
-                }
+                slot.store(false, Relaxed);
+                WINV_USED.store(false, Relaxed);
             }
         }
-        if k.flags & LLKHF_INJECTED == 0 && k.vkCode == VK_V as u32 {
+        if !injected && k.vkCode == VK_V as u32 {
             if is_down {
                 let down = |vk: u16| GetAsyncKeyState(vk as i32) < 0;
-                let win = WIN_DOWN.load(Relaxed) || down(VK_LWIN) || down(VK_RWIN);
+                let win = LWIN_DOWN.load(Relaxed) || RWIN_DOWN.load(Relaxed) || down(VK_LWIN) || down(VK_RWIN);
                 let others = down(VK_CONTROL) || down(VK_SHIFT) || down(VK_MENU);
                 if win && !others {
                     if !WINV_SWALLOW.swap(true, Relaxed) {
@@ -2861,12 +3112,20 @@ fn hook_thread() {
             return;
         }
         let mut msg: MSG = std::mem::zeroed();
-        while GetMessageW(&mut msg, null_mut(), 0, 0) > 0 {}
+        let timer = SetTimer(null_mut(), 0, 250, None);
+        while GetMessageW(&mut msg, null_mut(), 0, 0) > 0 {
+            if msg.message == WM_TIMER {
+                win_watchdog();
+            }
+        }
+        KillTimer(null_mut(), timer);
         UnhookWindowsHookEx(hk);
         // only clear the id if it is still ours: after a quick off/on, a newer hook thread owns it
         let me = GetCurrentThreadId();
         if HOOK_TID.compare_exchange(me, 0, Relaxed, Relaxed).is_ok() {
-            WIN_DOWN.store(false, Relaxed);
+            LWIN_DOWN.store(false, Relaxed);
+            RWIN_DOWN.store(false, Relaxed);
+            WINV_USED.store(false, Relaxed);
             WINV_SWALLOW.store(false, Relaxed);
         }
     }
@@ -3845,5 +4104,81 @@ fn main() {
             TranslateMessage(&msg);
             DispatchMessageW(&msg);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn all_embedded_sounds_decode_to_valid_pcm_wav() {
+        for pack in &PACKS {
+            for (kind, src) in [
+                ("new", pack.s_new),
+                ("repeat", pack.s_repeat),
+                ("seen", pack.s_seen),
+                ("paste", pack.s_paste),
+            ] {
+                let full = scaled(src, 100);
+                assert!(full.len() > 44, "{} {kind}: decoded wav too small", pack.name);
+                assert_eq!(&full[0..4], b"RIFF");
+                assert_eq!(&full[8..12], b"WAVE");
+                assert_eq!(u16::from_le_bytes([full[20], full[21]]), 1, "{} {kind}: expected PCM", pack.name);
+                let ch = u16::from_le_bytes([full[22], full[23]]);
+                let rate = u32::from_le_bytes([full[24], full[25], full[26], full[27]]);
+                let bits = u16::from_le_bytes([full[34], full[35]]);
+                let data_sz = u32::from_le_bytes([full[40], full[41], full[42], full[43]]) as usize;
+                assert!(ch == 1 || ch == 2);
+                assert_eq!(rate, 44100);
+                assert_eq!(bits, 16);
+                assert_eq!(full.len(), 44 + data_sz, "{} {kind}: size mismatch", pack.name);
+                assert!(data_sz >= 4000, "{} {kind}: audio unexpectedly short", pack.name);
+
+                let peak = |buf: &[u8]| -> i32 {
+                    buf[44..]
+                        .chunks_exact(2)
+                        .map(|c| (i16::from_le_bytes([c[0], c[1]]) as i32).abs())
+                        .max()
+                        .unwrap_or(0)
+                };
+                let p100 = peak(&full);
+                assert!(p100 > 500, "{} {kind}: decoded audio looks silent (peak={p100})", pack.name);
+
+                let half = scaled(src, 50);
+                assert_eq!(half.len(), full.len());
+                let p50 = peak(&half);
+                // Quadratic volume curve: 50% -> 0.25x amplitude
+                let expected = (p100 as f32 * 0.25) as i32;
+                assert!((p50 - expected).abs() <= 2, "{} {kind}: peak at 50% was {p50}, expected ~{expected}", pack.name);
+
+                let zero = scaled(src, 0);
+                assert_eq!(peak(&zero), 0, "{} {kind}: volume 0 should be silent", pack.name);
+            }
+        }
+    }
+
+    #[test]
+    fn pcm_wav_scaling_works() {
+        let mut wav = Vec::new();
+        wav.extend_from_slice(b"RIFF");
+        wav.extend_from_slice(&(36u32 + 4).to_le_bytes());
+        wav.extend_from_slice(b"WAVEfmt ");
+        wav.extend_from_slice(&16u32.to_le_bytes());
+        wav.extend_from_slice(&1u16.to_le_bytes()); // PCM
+        wav.extend_from_slice(&1u16.to_le_bytes()); // mono
+        wav.extend_from_slice(&44100u32.to_le_bytes());
+        wav.extend_from_slice(&88200u32.to_le_bytes());
+        wav.extend_from_slice(&2u16.to_le_bytes());
+        wav.extend_from_slice(&16u16.to_le_bytes());
+        wav.extend_from_slice(b"data");
+        wav.extend_from_slice(&4u32.to_le_bytes());
+        wav.extend_from_slice(&10000i16.to_le_bytes());
+        wav.extend_from_slice(&(-10000i16).to_le_bytes());
+
+        assert_eq!(scaled(&wav, 100), wav);
+        let half = scaled(&wav, 50);
+        assert_eq!(i16::from_le_bytes([half[44], half[45]]), 2500);
+        assert_eq!(i16::from_le_bytes([half[46], half[47]]), -2500);
     }
 }
