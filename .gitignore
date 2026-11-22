@@ -1,2 +1,13 @@
 target/
 installer/target/
+dist/
+*.bmp
+_data/
+*.log
+*.tmp
+*.bak
+.vscode/
+Thumbs.db
+desktop.ini
+.DS_Store
+.stversions/
